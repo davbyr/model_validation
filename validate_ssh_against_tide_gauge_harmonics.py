@@ -45,8 +45,8 @@ to the main script.
  #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
     
 # Input paths and Filenames
-fn_nemo_harmonics = "/Users/Dave/Documents/Projects/CO9_AMM15/validation/data/subset2.nc"
-fn_nemo_domain    = "/Users/Dave/Documents/Projects/CO9_AMM15/validation/data/subset2_domain.nc"
+fn_nemo_harmonics = "/Users/Dave/Documents/Projects/CO9_AMM15/validation/data/coast_nemo_harmonics.nc"
+fn_nemo_domain    = "/Users/Dave/Documents/Projects/CO9_AMM15/validation/data/coast_nemo_harmonics_dom.nc"
 fn_obs_harmonics = "/Users/Dave/Documents/Projects/CO9_AMM15/validation/data/MDP_harmonics.nc"
 
 # Output directory
@@ -91,7 +91,7 @@ def main():
     
     # ----------------------------------------------------
     # 2. Read model harmonics. See comment in function for data format
-    model_harmonics = read_harmonics_model(fn_nemo_harmonics, fn_nemo_domain,
+    model_harmonics = read_harmonics_nemo(fn_nemo_harmonics, fn_nemo_domain,
                                           constituents)
     print(' 2. NEMO harmonics read from file.')
     
@@ -127,7 +127,7 @@ def main():
     print(' 5. Data compared, stats calculated.')
     
     # ----------------------------------------------------
-    # 6. Plot and save errors on maps.
+    # 6. Plot and save error stats on maps.
     plot_amplitude_errors_on_map(stats, dn_output)
     plot_abs_amplitude_errors_on_map(stats, dn_output)
     plot_phase_errors_on_map(stats, dn_output)
@@ -136,6 +136,7 @@ def main():
     
     # ----------------------------------------------------
     # 7. Write stats to new netcdf file
+    write_stats_to_file(stats, dn_output)
     print(' 7. Stats netcdf file saved to: ' + dn_output)
     
     # ----------------------------------------------------
@@ -147,7 +148,7 @@ def main():
     print(' *Tidal validation complete.* ')
     
 
-def read_harmonics_obs(fn_obs_harmonics, constituents):
+def read_harmonics_obs_mdp(fn_obs_harmonics, constituents):
     '''
     For reading and formatting observation data. Modify or replace as necessary.
     If output from this fucntion is correct then the validation script will
@@ -165,7 +166,7 @@ def read_harmonics_obs(fn_obs_harmonics, constituents):
     '''
 
     # Open netCDF file and read data
-    harmonics = xr.open_dataset(fn_obs_harmonics)
+    harmonics = xr.open_dataset(fn_obs_harmonics, chunks = {})
     
     # Select only the specified constituents and disregard the rest
     obs_constituents = harmonics.constituent_name
@@ -175,7 +176,7 @@ def read_harmonics_obs(fn_obs_harmonics, constituents):
     harmonics = harmonics.isel(constituent = ind)
     return harmonics
 
-def read_harmonics_model(fn_nemo_harmonics, fn_nemo_domain, constituents):
+def read_harmonics_model_nemo(fn_nemo_harmonics, fn_nemo_domain, constituents):
     '''
     For reading and formatting model data. Modify or replace as necessary.
     If output from this fucntion is correct then the validation script will
@@ -196,67 +197,19 @@ def read_harmonics_model(fn_nemo_harmonics, fn_nemo_domain, constituents):
     default script determines the landmask from bathymetry. If not available,
     set this variable to all False (tell it there is no land -- a Lie!!).
     '''
-    # Read model data into xarray dataset: both data and domain
-    harmonics = xr.open_dataset(fn_nemo_harmonics)
-    domain = xr.open_dataset(fn_nemo_domain)
+    # Read in nemo harmonics using COAsT
+    nemo = coast.NEMO(fn_nemo_harmonics, fn_nemo_domain)
+    nemo = nemo.harmonics_combine(['M2','S2'])
     
-    # Rename dimensions and coordinates -> CHECK THIS FOR YOUR DATA
-    harmonics = harmonics.rename({'nav_lat_grid_T':'latitude',
-                                  "nav_lon_grid_T":'longitude',
-                                  "x_grid_T":"x_dim",
-                                  "y_grid_T":"y_dim"})
-    
-    # Select only the specified constituents. NEMO model harmonics names are
-    # things like "M2x" and "M2y". Ignore current harmonics. Start by constructing
-    # the possible variable names
-    names_x = np.array([cc + "x" for cc in constituents])
-    names_y = np.array([cc + "y" for cc in constituents])
-    constituents = np.array(constituents)
-    
-    # Compare against names in file
-    var_keys = np.array(list(harmonics.keys()))
-    indices = [np.where( names_x == ss) for ss in names_x if ss in var_keys]
-    indices = np.array(indices).T.squeeze()
-    
-    # Index the possible names to match file names
-    names_x = names_x[indices]
-    names_y = names_y[indices]
-    constituents = constituents[indices]
-    
-    # Create list of all variable names
-    names = np.concatenate((names_x, names_y))
-    
-    # Extract only the variables that we want
-    harmonics = harmonics[names]
-    
-    # Create empty amplitude and phase arrays
-    n_constituents = len(constituents)
-    n_x = harmonics.latitude.shape[0]
-    n_y = harmonics.latitude.shape[1]
-    amplitude = np.zeros((n_constituents, n_x, n_y))
-    phase = np.zeros((n_constituents, n_x, n_y))
-    
-    # Convert to amplitude and phase (complex space -> polar)
-    for ii in range(0,len(names_x)):
-        var_x = harmonics[names_x[ii]]
-        var_y = harmonics[names_y[ii]]
-        amplitude[ii,:,:] = np.sqrt(var_x**2 + var_y**2)
-        phase[ii,:,:] = np.arctan2(var_y, var_x)
-        harmonics = harmonics.drop_vars(names_x[ii])
-        harmonics = harmonics.drop_vars(names_y[ii])
-        
-    # Save new variables into xarray dataset
-    harmonics['amplitude'] = (('constituent', 'y_dim', 'x_dim'),amplitude)
-    harmonics['phase'] = (('constituent', 'y_dim', 'x_dim'),phase)
-    harmonics['constituent_name'] = (('constituent'), constituents)
+    # Convert to amplitude and phase.
+    nemo.harmonics_convert()
         
     # Define landmask as being everywhere that the depth is 0 (or "shallower")
-    landmask = domain.bathy_metry<= 0
+    landmask = nemo.bathy_metry<= 0
     landmask = landmask.squeeze()
-    landmask = landmask.rename({"x":"x_dim", "y":"y_dim"})
-    harmonics['landmask'] = (landmask)
+    nemo.dataset['landmask'] = landmask
     
-    return harmonics
+    return nemo.dataset
 
 def calculate_statistics(model_harmonics, obs_harmonics):
     '''
@@ -292,9 +245,13 @@ def calculate_statistics(model_harmonics, obs_harmonics):
     return stats
 
 def plot_amplitudes_map(model_harmonics, obs_harmonics, dn_output):
+    ''' Plots modelled and obs amplitudes on a geographical map using 
+    COAsT and cartopy. See plot_amplitude_errors_on_map() for more info'''
     return
 
 def plot_phases_map(model_harmonics, obs_harmonics, dn_output):
+    ''' Plots modelled and obs phases on a geographical map using 
+    COAsT and cartopy. See plot_amplitude_errors_on_map() for more info'''
     return
 
 def plot_amplitude_errors_on_map(stats, dn_output):
