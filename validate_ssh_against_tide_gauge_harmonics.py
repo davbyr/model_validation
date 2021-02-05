@@ -53,7 +53,7 @@ fn_obs_harmonics = "/Users/Dave/Documents/Projects/CO9_AMM15/validation/data/MDP
 dn_output = "/Users/Dave/Documents/Projects/CO9_AMM15/validation/plots"
 
 # Constituents to analyse
-constituents=['M2','S2', 'bl2']
+constituents=['M2','S2']
 
 # Name of run or configuration -- for file and figure naming.
 run_name = "CO9_AMM15"
@@ -86,12 +86,12 @@ def main():
     print(' *Tidal validation starting.* ')
     # ----------------------------------------------------
     # 1. Read observations. See comment in function for data format.
-    obs_harmonics = read_harmonics_obs(fn_obs_harmonics, constituents)
+    obs_harmonics = read_harmonics_obs_mdp(fn_obs_harmonics, constituents)
     print(' 1. Observed harmonics read from file.')
     
     # ----------------------------------------------------
     # 2. Read model harmonics. See comment in function for data format
-    model_harmonics = read_harmonics_nemo(fn_nemo_harmonics, fn_nemo_domain,
+    model_harmonics = read_harmonics_model_nemo(fn_nemo_harmonics, fn_nemo_domain,
                                           constituents)
     print(' 2. NEMO harmonics read from file.')
     
