@@ -34,6 +34,10 @@ grid.
 
 The script is in three sections: Global Variables, Functions and then the main
 script.
+
+*NOTE: In all xarray.open_dataset or xarray.open_mfdataset calls, make sure
+you switch on Dask by defining chunks. At the least, pass the argument
+chunks = {} OR chunks = 'auto'.
 """
 
 import coast
