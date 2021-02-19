@@ -44,6 +44,7 @@ import xarray as xr
 import xesmf as xe
 import numpy as np
 from dask.diagnostics import ProgressBar
+import os
 
 '''
  #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
@@ -179,7 +180,11 @@ ds_out = read_data_for_regridding_ostia()
 weights, regridded = regrid_using_xesmf(ds_in, ds_out, interp_method)
 
 if write_weights:
+    if os.path.exists(fn_weights):
+        os.remove(fn_weights)
     write_weights(weights, fn_weights)
 
 if write_regridded:
+    if os.path.exists(fn_regridded):
+        os.remove(fn_regridded)
     write_regridded(regridded, fn_regridded)
