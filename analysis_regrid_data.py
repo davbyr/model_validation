@@ -48,25 +48,6 @@ import os
 
 '''
  #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
- # GLOBAL VARIABLES
- #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
-'''
-# DEFINE OUTPUT FILES
-
-# The new file containing regridded data
-fn_regridded = "/Users/dbyrne/Projects/CO9_AMM15/nemo_clim_regridded_to_ostia2.nc"
-# File containing regridding weights, if write_weights is True
-fn_weights = "/Users/dbyrne/Projects/CO9_AMM15/regrid_weights.nc"
-
-# Which files to write. 
-write_weights = False
-write_regridded = True
-
-# Regridding method. Any XESMF method: bilinear, conservative, cubic, etc
-interp_method = 'bilinear'
-
-'''
- #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
  # FUNCTIONS
  #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 '''
@@ -154,17 +135,40 @@ def regrid_using_xesmf(ds_in, ds_out, interp_method):
     
     return weights, regridded
 
-def write_weights(weights, fn_weights):
+def write_weights_to_file(weights, fn_weights):
     ''' Write regridding weights to file'''
     print("Writing weights file..")
+    if os.path.exists(fn_weights):
+        os.remove(fn_weights)
     with ProgressBar():
         weights.to_netcdf(fn_weights)
     
-def write_regridded(regridded, fn_regridded):
+def write_regridded_to_file(regridded, fn_regridded):
     ''' Write regridded dataset to file.'''
     print("Writing regridded data..")
+    if os.path.exists(fn_regridded):
+        os.remove(fn_regridded)
     with ProgressBar():
         regridded.to_netcdf(fn_regridded)
+      
+'''
+ #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+ # SET VARIABLES
+ #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+'''
+# DEFINE OUTPUT FILES
+
+# The new file containing regridded data
+fn_regridded = "/Users/dbyrne/Projects/CO9_AMM15/nemo_clim_regridded_to_ostia2.nc"
+# File containing regridding weights, if write_weights is True
+fn_weights = "/Users/dbyrne/Projects/CO9_AMM15/regrid_weights.nc"
+
+# Which files to write. 
+do_write_weights = False
+do_write_regridded = True
+
+# Regridding method. Any XESMF method: bilinear, conservative, cubic, etc
+interp_method = 'bilinear'
       
 '''
  #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
@@ -179,12 +183,8 @@ ds_out = read_data_for_regridding_ostia()
 # Calculate weights and regrid the data
 weights, regridded = regrid_using_xesmf(ds_in, ds_out, interp_method)
 
-if write_weights:
-    if os.path.exists(fn_weights):
-        os.remove(fn_weights)
-    write_weights(weights, fn_weights)
+if do_write_weights:
+    write_weights_to_file(weights, fn_weights)
 
-if write_regridded:
-    if os.path.exists(fn_regridded):
-        os.remove(fn_regridded)
-    write_regridded(regridded, fn_regridded)
+if do_write_regridded:
+    write_regridded_to_file(regridded, fn_regridded)

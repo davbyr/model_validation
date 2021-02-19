@@ -27,19 +27,11 @@ chunks = {} OR chunks = 'auto'.
 import coast
 import xarray as xr
 
- #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
- # GLOBAL VARIABLES
- #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
-    
-# Define output file
-fn_out = "/Users/dbyrne/Projects/CO9_AMM15/p0_seasonal_mean.nc"
-
-# Define frequency -- Any xarray time string: season, month, etc
-climatology_frequency = 'month'
-
+'''
  #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
  # FUNCTIONS
  #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+'''
 
 def read_data_input_ostia():
     ''' For reading multiple OSTIA input files to use for analysis '''
@@ -73,10 +65,23 @@ def calculate_climatology_using_coast(data, climatology_frequency, fn_out):
                                       fn_out=fn_out)
     return clim_mean
 
+'''
+ #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+ # SET VARIABLES
+ #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+'''  
+# Define output file
+fn_out = "/Users/dbyrne/Projects/CO9_AMM15/p0_seasonal_mean.nc"
+
+# Define frequency -- Any xarray time string: season, month, etc
+climatology_frequency = 'month'
+
+
+'''
  #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
  # MAIN SCRIPT
  #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
-
+'''
 # Use a READ routine to create an xarray dataset
 data = read_data_input_ostia()
 
