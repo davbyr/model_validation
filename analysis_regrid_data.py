@@ -40,7 +40,6 @@ you switch on Dask by defining chunks. At the least, pass the argument
 chunks = {} OR chunks = 'auto'.
 """
 
-import coast
 import xarray as xr
 import xesmf as xe
 import numpy as np
@@ -72,13 +71,14 @@ interp_method = 'bilinear'
 '''
 
 def read_data_for_regridding_nemo():
-    ''' Ouput from this function must be an xarray.Dataset or xarray.DataArray 
+    ''' For reading NEMO data into the right dataset format for XESMF.
+    Ouput from this function must be an xarray.Dataset or xarray.DataArray 
     object. Longitude and latitude variables must be named 'lon' and 'lat' 
     respectively. If data is on rectilinear grid, there should also be 
     dimensions named 'lon' and 'lat'. f using, "mask" should be 1s over the 
     ocean and 0 over the land.
     '''
-    
+    import coast
     # NEMO FILES
     fn_nemo_data = '/Users/dbyrne/Projects/CO9_AMM15/data/climatology/p0_seasonal_mean.nc'
     fn_nemo_domain = '/Users/dbyrne/Projects/CO9_AMM15/data/nemo/CO7_EXACT_CFG_FILE.nc'
@@ -92,14 +92,16 @@ def read_data_for_regridding_nemo():
     # Rename longitude and latitude for XESMF
     ds = ds.rename({'longitude':'lon', 'latitude':'lat'})
     
-    # Create a landmask and place into dataset
+    # Create a landmask and place into dataset using y_dim and x_dim dimensions
+    # x_dim and y_dim are dimensions from the NEMO dataset object
     domain = xr.open_dataset(fn_nemo_domain, chunks = {})
     ds['mask'] = (['y_dim','x_dim'],domain.top_level[0].values.astype(bool))
     
     return ds
     
 def read_data_for_regridding_ostia():
-    ''' Ouput from this function must be an xarray.Dataset or xarray.DataArray 
+    ''' For reading OSTIA data into the right dataset format for XESMF.
+    Ouput from this function must be an xarray.Dataset or xarray.DataArray 
     object. Longitude and latitude variables must be named 'lon' and 'lat' 
     respectively. If data is on rectilinear grid, there should also be 
     dimensions named 'lon' and 'lat'. If using, "mask" should be 1s over the 
@@ -111,9 +113,11 @@ def read_data_for_regridding_ostia():
     
     # Read OSTIA data using xarray. Variables are already named appropriately.
     # Extract the first time index of mask and redefine to be a landmask,
-    # not a land sea-ice mask.
+    # not a land sea-ice mask (I.E take all 1s and reject any >1)
     ds = xr.open_mfdataset(fn_ostia, chunks = {})
     mask_values = ds.mask.isel(season=0).values.astype(int) == 1
+    
+    # Place mask back into dataset using lat and lon dimensions
     ds['mask'] = (['lat','lon'], mask_values)
     return ds
 
