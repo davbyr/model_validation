@@ -147,103 +147,6 @@ def main():
     print(' 8. Input files close. ' )
     print(' *Tidal validation complete.* ')
     
-
-def read_harmonics_obs_mdp(fn_obs_harmonics, constituents):
-    '''
-    For reading and formatting observation data. Modify or replace as necessary.
-    If output from this fucntion is correct then the validation script will
-    continue to work. Data output should be in the form of a single xarray
-    Dataset object. This Dataset must have the minimum form and variable names:
-    
-    Dimensions:           (constituent: 2, port: 1104)
-    Coordinates:
-        longitude         (port) float64 ...
-        latitude          (port) float64 ...
-        constituent_name  (constituent) object 'M2' 'S2'
-    Data variables:
-        amplitude         (constituent, port) float64 ...
-        phase             (constituent, port) float64 ...
-    '''
-
-    # Open netCDF file and read data
-    harmonics = xr.open_dataset(fn_obs_harmonics, chunks = {})
-    
-    # Select only the specified constituents and disregard the rest
-    obs_constituents = harmonics.constituent_name
-    ind = [np.where( obs_constituents == ss) \
-                    for ss in constituents if ss in obs_constituents]
-    ind = np.array(ind).T.squeeze()
-    harmonics = harmonics.isel(constituent = ind)
-    return harmonics
-
-def read_harmonics_model_nemo(fn_nemo_harmonics, fn_nemo_domain, constituents):
-    '''
-    For reading and formatting model data. Modify or replace as necessary.
-    If output from this fucntion is correct then the validation script will
-    continue to work. Data output should be in the form of a single xarray
-    Dataset object. This Dataset must have the minimum form and variable names:
-    
-    Dimensions:           (constituent: 2, x_dim: 369, y_dim: 297)
-    Coordinates:
-        latitude          (y_dim, x_dim) float32 ...
-        longitude         (y_dim, x_dim) float32 ...
-    Data variables:
-        amplitude         (constituent, y_dim, x_dim) float64 0.7484 0.7524 ... 0.0
-        phase             (constituent, y_dim, x_dim) float64 -1.8 -1.8 ... -0.0
-        constituent_name  (constituent) <U3 'M2' 'S2'
-        landmask          (y_dim, x_dim) bool False False False ... True True True
-        
-    Here, x_dim and y_dim are the longitude and latitude axes respectively. The
-    default script determines the landmask from bathymetry. If not available,
-    set this variable to all False (tell it there is no land -- a Lie!!).
-    '''
-    # Read in nemo harmonics using COAsT
-    nemo = coast.NEMO(fn_nemo_harmonics, fn_nemo_domain)
-    nemo = nemo.harmonics_combine(['M2','S2'])
-    
-    # Convert to amplitude and phase.
-    nemo.harmonics_convert()
-        
-    # Define landmask as being everywhere that the depth is 0 (or "shallower")
-    landmask = nemo.bathy_metry<= 0
-    landmask = landmask.squeeze()
-    nemo.dataset['landmask'] = landmask
-    
-    return nemo.dataset
-
-def calculate_statistics(model_harmonics, obs_harmonics):
-    '''
-    Calculates statistics for plottin and writing to file.
-    Statistics are placed into a new xarray Dataset object.
-
-    '''
-    # Calculate statistics
-    error_a = model_harmonics.amplitude - obs_harmonics.amplitude
-    error_g = coastgu.compare_angles(model_harmonics.phase, obs_harmonics.phase)
-    abs_error_a = np.abs(error_a)
-    p_error_a = error_a.values / obs_harmonics.amplitude.values
-    #mae_a = np.nanmean( abs_error_a.values )
-    #mae_g = np.nanmean( error_g.values )
-    
-    # Place into stats xarray
-    stats = xr.Dataset(data_vars = dict(
-                         error_a = (["constituent","port"], error_a),
-                         error_g = (["constituent","port"], error_g),
-                         abs_error_a = (["constituent","port"], abs_error_a),
-                         prop_error_a = (["constituent","port"], 
-                                                 p_error_a),
-                         #mae_a = (['constituent'], mae_a), 
-                         #mae_g = (['constituent'], mae_g)
-                     ),
-                     coords = dict(
-                         longitude=(["port"], obs_harmonics.longitude),
-                         latitude=(["port"], obs_harmonics.latitude),
-                         constituent_name=(["constituent"], obs_harmonics.constituent_name),
-                         doodson_index=(["constituent"], obs_harmonics.doodson_index)
-                     ),
-                     attrs = dict(description='stats'))
-    return stats
-
 def plot_amplitudes_map(model_harmonics, obs_harmonics, dn_output):
     ''' Plots modelled and obs amplitudes on a geographical map using 
     COAsT and cartopy. See plot_amplitude_errors_on_map() for more info'''
@@ -337,16 +240,6 @@ def plot_proportional_amplitude_errors_on_map(stats, dn_output):
         print("  >>>>>  Saving: "+ fn_save)
         plt.savefig(os.path.join(dn_output, fn_save))
         plt.close()
-    return
-    
-def write_stats_to_file(stats, dn_output):
-    '''
-    Writes the stats xarray dataset to a new netcdf file in the output 
-    directory. stats is the dataset created by the calculate_statistics()
-    routine. dn_output is the specified output directory for the script.
-    '''
-    fn_save = run_name + "_stats.nc"
-    stats.to_netcdf(os.path.join(dn_output, fn_save))
     return
 
 if __name__ == '__main__':

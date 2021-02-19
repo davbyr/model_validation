@@ -7,7 +7,7 @@ v1.0 (20-01-2021)
 
 import coast
 import coast.general_utils as coastgu
-import coast.plot_util as coastpu
+import coast.plot_util as plot_util
 import numpy as np
 import matplotlib.pyplot as plt
 import xarray as xr
@@ -24,13 +24,14 @@ from scipy import interpolate
  #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
     
 # Input paths and Filenames
-fn_nemo_data = '/Users/Dave/Documents/Projects/CO9_AMM15/validation/data/2007*'
-fn_nemo_domain = '/Users/Dave/Documents/Projects/CO9_AMM15/validation/data/CO7_EXACT_CFG_FILE.nc'
-fn_en4 = '/Users/Dave/Documents/Projects/CO9_AMM15/validation/data/en4/EN.4.2.1.f.profiles.g10.20*'
-fn_output_data = ""
-dn_output_figs = ""
+fn_profile_stats = "/Users/dbyrne/Projects/CO9_AMM15/data/en4_stats_by_profile*" 
+fn_regional_stats = "/Users/dbyrne/Projects/CO9_AMM15/data/en4_stats_regional.nc"
+dn_output_figs = "/Users/dbyrne/Projects/CO9_AMM15/data/figs/"
 
-surface_depth = 10
+fn_test = "/Users/dbyrne/Projects/CO9_AMM15/data/en4/EN.4.2.1.f.profiles.g10.200403.nc"
+
+run_name = 'CO9_AMM15_p0'
+
 
  #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
  #SCRIPT
@@ -38,202 +39,386 @@ surface_depth = 10
 
 
 def main():
-    print(' *Tidal validation starting.* ')
-    
-    # Read in NEMO data to NEMO object
-    model = read_monthly_model_nemo(fn_nemo_data, fn_nemo_domain)
-    print(' 1. Monthly model data read from file(s).')
-    
-    # Read in Profile data to PROFILE object
-    obs = read_profile_monthly_en4(fn_en4)
-    print(' 2. Observed profiles read from file(s).')
-        
-    # ----------------------------------------------------
-    # 3. Use only observations that are within model domain
-    lonmax = np.nanmax(model['longitude'])
-    lonmin = np.nanmin(model['longitude'])
-    latmax = np.nanmax(model['latitude'])
-    latmin = np.nanmin(model['latitude'])
-    ind = coast.general_utils.subset_indices_lonlat_box(obs['longitude'], 
-                                                        obs['latitude'],
-                                                        lonmin, lonmax, 
-                                                        latmin, latmax)[0]
-    obs = obs.isel(profile=ind) # FOR TESTING
-    print(' 3. Observations subsetted to model domain boundaries')
-  
-    
-    # ----------------------------------------------------
-    # 4. Get indices of obs times that fall within model time bounds.
-    obs_time_ymd = pd.to_datetime(obs.time.values)
-    model_time_ymd = pd.to_datetime(model.time.values)
-    
-    obs_time_ym = [datetime.datetime(tt.year,tt.month,1) for tt in obs_time_ymd]
-    obs_time_ym = np.array(obs_time_ym)
-    model_time_ym = [datetime.datetime(tt.year,tt.month,1) for tt in model_time_ymd]
-    model_time_ym = np.array(model_time_ym)
-    
-    min_check = obs_time_ym >= np.nanmin(model_time_ym)
-    max_check = obs_time_ym <= np.nanmax(model_time_ym)
-    keep_time = np.where( np.logical_and(min_check, max_check) )[0]
-    
-    obs = obs.isel(profile=keep_time)
-    obs_time_ym = obs_time_ym[keep_time]
-    print(' 4. Observations subsetted to model time period')
-    
-    # ----------------------------------------------------
-    # 4. Get model indices (space and time) corresponding to observations
-    ind2D = coastgu.nearest_indices_2D(model['longitude'], model['latitude'],
-                                       obs['longitude'], obs['latitude'])
-    print(' 5. Model indices for obs profiles calculated')
-    
-    # ----------------------------------------------------
-    # 5. Load data in month chunks, then analyse one profile at a time
-    print(' 5. Starting loop over profiles for analysis..')
-    n_prof = obs.dims['profile']
-    n_months = len(model.time)
-    # Output arrays - For all profiles
-    surf_error_tem = np.zeros(n_prof)*np.nan
-    surf_error_sal = np.zeros(n_prof)*np.nan
-    me_tem = np.zeros(n_prof)*np.nan
-    me_sal = np.zeros(n_prof)*np.nan
-    mae_tem = np.zeros(n_prof)*np.nan
-    mae_sal = np.zeros(n_prof)*np.nan
-    cor_tem = np.zeros(n_prof)*np.nan
-    cor_sal = np.zeros(n_prof)*np.nan
-    
-    profile_count = 0
-    # Loop over months
-    for month_ii in range(0,n_months):
-        
-        print('Loading month of data: ' + str(model_time_ym[month_ii]))
-        pc_complete = np.round(profile_count/n_prof*100,2)
-        print(str(pc_complete)+'% of all profiles analyzed.')
-        
-        # Extract month from model and observations
-        model_month = model.isel(t_dim=month_ii).compute()
-        time_ind = np.where(obs_time_ym == model_time_ym[month_ii])[0]
-        obs_month = obs.isel(profile=time_ind).compute()
-        
-        # Loop over profiles in this month
-        n_prof_month = len(obs_month.time)
-        for p_ii in range(0,n_prof_month):
-            
-            obs_profile = obs_month.isel(profile=p_ii)
-            model_profile = model_month.isel(x_dim=ind2D[0][profile_count], 
-                                             y_dim=ind2D[1][profile_count])
-            
-            # Interpolate model to obs
-            obs_profile = obs_profile.rename({'depth':'level'})
-            model_profile = model_profile.rename({'depth_0':'z_dim'})
-            interp_profile = model_profile.interp(z_dim=obs_profile.level, method='linear')
-            
-            # Get variables into nice numpy arrays
-            obs_tem = obs_profile.temperature.to_masked_array()
-            obs_sal = obs_profile.practical_salinity.to_masked_array()
-            interp_tem = interp_profile.temperature.to_masked_array()
-            interp_sal = interp_profile.salinity.to_masked_array()
-            
-            if interp_tem.mask.all():
-                profile_count += 1
-                continue
-            
-            # ----------------------------------------------------
-            # Surface stats
-            ind_shallowest = np.ma.flatnotmasked_edges(interp_tem)[0]
-            tem_diff = obs_tem[ind_shallowest] - interp_tem[ind_shallowest]
-            sal_diff = obs_sal[ind_shallowest] - interp_sal[ind_shallowest] 
-            surf_error_tem[profile_count] = tem_diff
-            surf_error_sal[profile_count] = sal_diff
-            
-            # ----------------------------------------------------
-            # Bottom stats
-            
-            # ----------------------------------------------------
-            # CRPS
-            
-            # ----------------------------------------------------
-            # Whole profile stats
-            
-            # Errors at all depths
-            error_tem = obs_tem - interp_tem
-            error_sal = obs_sal - interp_sal
-            
-            # Absolute errors at all depths
-            abs_error_tem = np.abs(error_tem)
-            abs_error_sal = np.abs(error_sal)
-            
-            # Mean errors across depths
-            me_tem[profile_count] = np.ma.mean(error_tem)
-            me_sal[profile_count] = np.ma.mean(error_sal)
-            
-            # Mean absolute errors across depths
-            mae_tem[profile_count] = np.ma.mean(abs_error_tem)
-            mae_sal[profile_count] = np.ma.mean(abs_error_sal)
-            
-            # Correlations with depth between model and obs
-            cor_tem[profile_count] = np.ma.corrcoef(obs_tem, interp_tem)[0,1]
-            cor_sal[profile_count] = np.ma.corrcoef(obs_sal, interp_sal)[0,1]
-            
-            # ----------------------------------------------------
-            # Time averaged errors - Average 
-            
-            # ----------------------------------------------------
-            # Area stats
-            
-            profile_count += 1
-            
-            
-        # Write stats to file, this is done monthly and appended to a 
-            
-            
-    # Make some plots
-    
 
-def read_profile_monthly_en4(fn_en4):
-    '''
-    '''
+    stats_profile = read_stats_profiles(fn_profile_stats)
     
-    en4 = coast.PROFILE()
-    en4.read_EN4(fn_en4, multiple=True, chunks={})
+    stats_regional = read_stats_regional(fn_regional_stats)
     
-    return en4.dataset
+    ######################
+    # SURFACE ERRORS
+    ######################
+    
+    sf = 2
+    
+    # All surface errors - TEMPERATURE
+    title_tmp = 'SST Anom. | Whole Year | ' + run_name
+    fn_out = 'surf_error_tem_annual.eps'
+    fn_out = os.path.join(dn_output_figs, fn_out)
+    geo_scatter_profiles(stats_profile.surf_error_tem, title_tmp, fn_out, sf=sf)
+    
+    # Winter surface errors TEMPERATURE
+    title_tmp = 'SST Anom. | DJF |' + run_name
+    fn_out = 'surf_error_tem_djf.eps'
+    fn_out = os.path.join(dn_output_figs, fn_out)
+    ind_season = stats_profile.season==1
+    geo_scatter_profiles(stats_profile.surf_error_tem.isel(profile=ind_season),
+                         title_tmp, fn_out, sf=sf)
+    
+    # Spring surface errors - TEMPERATURE
+    title_tmp = 'SST Anom.| MAM |' + run_name
+    fn_out = 'surf_error_tem_mam.eps'
+    fn_out = os.path.join(dn_output_figs, fn_out)
+    ind_season = stats_profile.season==2
+    geo_scatter_profiles(stats_profile.surf_error_tem.isel(profile=ind_season), 
+                         title_tmp, fn_out, sf=sf)
+    
+    # Summer surface errors - TEMPERATURE
+    title_tmp = 'SST Anom. | JJA |' + run_name
+    fn_out = 'surf_error_tem_jja.eps'
+    fn_out = os.path.join(dn_output_figs, fn_out)
+    ind_season = stats_profile.season==3
+    geo_scatter_profiles(stats_profile.surf_error_tem.isel(profile=ind_season), 
+                         title_tmp, fn_out, sf=sf)
+    
+    # Autumn surface errors - TEMPERATURE
+    title_tmp = 'SST Anom. | SON |' + run_name
+    fn_out = 'surf_error_tem_son.eps'
+    fn_out = os.path.join(dn_output_figs, fn_out)
+    ind_season = stats_profile.season==4
+    geo_scatter_profiles(stats_profile.surf_error_tem.isel(profile=ind_season), 
+                         title_tmp, fn_out)
+    
+    # All surface errors - SALINITY
+    title_tmp = 'SSS Anom. | Whole Year | ' + run_name
+    fn_out = 'surf_error_sal_annual.eps'
+    fn_out = os.path.join(dn_output_figs, fn_out)
+    geo_scatter_profiles(stats_profile.surf_error_sal, title_tmp, fn_out, sf=2)
+    
+    # Winter surface errors- SALINITY
+    title_tmp = 'SSS Anom. | DJF |' + run_name
+    fn_out = 'surf_error_sal_djf.eps'
+    fn_out = os.path.join(dn_output_figs, fn_out)
+    ind_season = stats_profile.season==1
+    geo_scatter_profiles(stats_profile.surf_error_sal.isel(profile=ind_season),
+                         title_tmp, fn_out, sf=2)
+    
+    # Spring surface errors- SALINITY
+    title_tmp = 'SSS Anom. | MAM |' + run_name
+    fn_out = 'surf_error_sal_mam.eps'
+    fn_out = os.path.join(dn_output_figs, fn_out)
+    ind_season = stats_profile.season==2
+    geo_scatter_profiles(stats_profile.surf_error_sal.isel(profile=ind_season), 
+                         title_tmp, fn_out, sf=2)
+    
+    # Summer surface errors- SALINITY
+    title_tmp = 'SSS Anom.) | JJA |' + run_name
+    fn_out = 'surf_error_sal_jja.eps'
+    fn_out = os.path.join(dn_output_figs, fn_out)
+    ind_season = stats_profile.season==3
+    geo_scatter_profiles(stats_profile.surf_error_sal.isel(profile=ind_season), 
+                         title_tmp, fn_out, sf=2)
+    
+    # Autumn surface errors- SALINITY
+    title_tmp = 'SSS Anom. | SON |' + run_name
+    fn_out = 'surf_error_sal_son.eps'
+    fn_out = os.path.join(dn_output_figs, fn_out)
+    ind_season = stats_profile.season==4
+    geo_scatter_profiles(stats_profile.surf_error_sal.isel(profile=ind_season), 
+                         title_tmp, fn_out, sf=2)
+    
+    ######################
+    # BOTTOM ERRORS
+    ######################
+    
+    # All bottace errors
+    title_tmp = 'SBT Anom. | Whole Year | ' + run_name
+    fn_out = 'bott_error_tem_annual.eps'
+    fn_out = os.path.join(dn_output_figs, fn_out)
+    geo_scatter_profiles(stats_profile.bott_error_tem, title_tmp, fn_out, sf=sf)
+    
+    # Winter Bottom errors
+    title_tmp = 'SBT Anom. | DJF |' + run_name
+    fn_out = 'bott_error_tem_djf.eps'
+    fn_out = os.path.join(dn_output_figs, fn_out)
+    ind_season = stats_profile.season==1
+    geo_scatter_profiles(stats_profile.bott_error_tem.isel(profile=ind_season),
+                         title_tmp, fn_out, sf=sf)
+    
+    # Spring Bottom errors
+    title_tmp = 'SBT Anom. | MAM |' + run_name
+    fn_out = 'bott_error_tem_mam.eps'
+    fn_out = os.path.join(dn_output_figs, fn_out)
+    ind_season = stats_profile.season==2
+    geo_scatter_profiles(stats_profile.bott_error_tem.isel(profile=ind_season), 
+                         title_tmp, fn_out, sf=sf)
+    
+    # Summer Bottom errors
+    title_tmp = 'SBT Anom. | JJA |' + run_name
+    fn_out = 'bott_error_tem_jja.eps'
+    fn_out = os.path.join(dn_output_figs, fn_out)
+    ind_season = stats_profile.season==3
+    geo_scatter_profiles(stats_profile.bott_error_tem.isel(profile=ind_season), 
+                         title_tmp, fn_out, sf=sf)
+    
+    # Autumn Bottom errors
+    title_tmp = 'SBT Anom. | SON |' + run_name
+    fn_out = 'bott_error_tem_son.eps'
+    fn_out = os.path.join(dn_output_figs, fn_out)
+    ind_season = stats_profile.season==4
+    geo_scatter_profiles(stats_profile.bott_error_tem.isel(profile=ind_season), 
+                         title_tmp, fn_out, sf=sf)
+    
+    # All bottace errors - SALINITY
+    title_tmp = 'SBS Anom. | Whole Year | ' + run_name
+    fn_out = 'bott_error_sal_annual.eps'
+    fn_out = os.path.join(dn_output_figs, fn_out)
+    geo_scatter_profiles(stats_profile.bott_error_sal, title_tmp, fn_out, sf=2)
+    
+    # Winter Bottom errors - SALINITY
+    title_tmp = 'SBS Anom. | DJF |' + run_name
+    fn_out = 'bott_error_sal_djf.eps'
+    fn_out = os.path.join(dn_output_figs, fn_out)
+    ind_season = stats_profile.season==1
+    geo_scatter_profiles(stats_profile.bott_error_sal.isel(profile=ind_season),
+                         title_tmp, fn_out, sf=2)
+    
+    # Spring Bottom errors - SALINITY
+    title_tmp = 'SBS Anom. | MAM |' + run_name
+    fn_out = 'bott_error_sal_mam.eps'
+    fn_out = os.path.join(dn_output_figs, fn_out)
+    ind_season = stats_profile.season==2
+    geo_scatter_profiles(stats_profile.bott_error_sal.isel(profile=ind_season), 
+                         title_tmp, fn_out, sf=2)
+    
+    # Summer Bottom errors - SALINITY
+    title_tmp = 'SBS Anom. | JJA |' + run_name
+    fn_out = 'bott_error_sal_jja.eps'
+    fn_out = os.path.join(dn_output_figs, fn_out)
+    ind_season = stats_profile.season==3
+    geo_scatter_profiles(stats_profile.bott_error_sal.isel(profile=ind_season), 
+                         title_tmp, fn_out, sf=2)
+    
+    # Autumn Bottom errors - SALINITY
+    title_tmp = 'SBS Anom. | SON |' + run_name
+    fn_out = 'bott_error_sal_son.eps'
+    fn_out = os.path.join(dn_output_figs, fn_out)
+    ind_season = stats_profile.season==4
+    geo_scatter_profiles(stats_profile.bott_error_sal.isel(profile=ind_season), 
+                         title_tmp, fn_out, sf=2)
+    
+    ######################
+    # SURFACE CRPS
+    ######################
+    try:
+        # All surface errors - TEMPERATURE
+        title_tmp = 'Surface Temperature CRPS (5m Mean) | Whole Year | ' + run_name
+        fn_out = 'surf_crps_tem_annual.eps'
+        fn_out = os.path.join(dn_output_figs, fn_out)
+        geo_scatter_profiles_abs(stats_profile.surf_crps_tem, title_tmp, fn_out)
+        
+        # Winter surface CRPSs TEMPERATURE
+        title_tmp = 'Surface Temperature CRPS (5m Mean) | DJF |' + run_name
+        fn_out = 'surf_crps_tem_djf.eps'
+        fn_out = os.path.join(dn_output_figs, fn_out)
+        ind_season = stats_profile.season==1
+        geo_scatter_profiles_abs(stats_profile.surf_crps_tem.isel(profile=ind_season),
+                             title_tmp, fn_out)
+        
+        # Spring surface CRPSs - TEMPERATURE
+        title_tmp = 'Surface Temperature CRPS (5m Mean) | MAM |' + run_name
+        fn_out = 'surf_crps_tem_mam.eps'
+        fn_out = os.path.join(dn_output_figs, fn_out)
+        ind_season = stats_profile.season==2
+        geo_scatter_profiles_abs(stats_profile.surf_crps_tem.isel(profile=ind_season), 
+                             title_tmp, fn_out)
+        
+        # Summer surface CRPSs - TEMPERATURE
+        title_tmp = 'Surface Temperature CRPS (5m Mean) | JJA |' + run_name
+        fn_out = 'surf_crps_tem_jja.eps'
+        fn_out = os.path.join(dn_output_figs, fn_out)
+        ind_season = stats_profile.season==3
+        geo_scatter_profiles_abs(stats_profile.surf_crps_tem.isel(profile=ind_season), 
+                             title_tmp, fn_out)
+        
+        # Autumn surface CRPSs - TEMPERATURE
+        title_tmp = 'Surface Temperature CRPS (5m Mean) | SON |' + run_name
+        fn_out = 'surf_crps_tem_son.eps'
+        fn_out = os.path.join(dn_output_figs, fn_out)
+        ind_season = stats_profile.season==4
+        geo_scatter_profiles_abs(stats_profile.surf_crps_tem.isel(profile=ind_season), 
+                             title_tmp, fn_out)
+        
+        # All surface CRPSs - SALINITY
+        title_tmp = 'Surface Salinity CRPS (5m Mean) | Whole Year | ' + run_name
+        fn_out = 'surf_crps_sal_annual.eps'
+        fn_out = os.path.join(dn_output_figs, fn_out)
+        geo_scatter_profiles_abs(stats_profile.surf_crps_sal, title_tmp, fn_out, sf=2)
+        
+        # Winter surface CRPSs- SALINITY
+        title_tmp = 'Surface Salinity CRPS (5m Mean) | DJF |' + run_name
+        fn_out = 'surf_crps_sal_djf.eps'
+        fn_out = os.path.join(dn_output_figs, fn_out)
+        ind_season = stats_profile.season==1
+        geo_scatter_profiles_abs(stats_profile.surf_crps_sal.isel(profile=ind_season),
+                             title_tmp, fn_out, sf=2)
+        
+        # Spring surface CRPSs- SALINITY
+        title_tmp = 'Surface Salinity CRPS (5m Mean) | MAM |' + run_name
+        fn_out = 'surf_crps_sal_mam.eps'
+        fn_out = os.path.join(dn_output_figs, fn_out)
+        ind_season = stats_profile.season==2
+        geo_scatter_profiles_abs(stats_profile.surf_crps_sal.isel(profile=ind_season), 
+                             title_tmp, fn_out, sf=2)
+        
+        # Summer surface CRPSs- SALINITY
+        title_tmp = 'Surface Salinity CRPS (5m Mean) | JJA |' + run_name
+        fn_out = 'surf_crps_sal_jja.eps'
+        fn_out = os.path.join(dn_output_figs, fn_out)
+        ind_season = stats_profile.season==3
+        geo_scatter_profiles_abs(stats_profile.surf_crps_sal.isel(profile=ind_season), 
+                             title_tmp, fn_out, sf=2)
+        
+        # Autumn surface CRPSs- SALINITY
+        title_tmp = 'Surface Salinity CRPS (5m Mean) | SON |' + run_name
+        fn_out = 'surf_crps_sal_son.eps'
+        fn_out = os.path.join(dn_output_figs, fn_out)
+        ind_season = stats_profile.season==4
+        geo_scatter_profiles_abs(stats_profile.surf_crps_sal.isel(profile=ind_season), 
+                             title_tmp, fn_out, sf=2)
+    except:
+        pass
+    ######################
+    # MEAN PROFILES
+    ######################
+    
+    # For titles
+    region_names = ['Whole Domain','<200m','>200m','North Sea','Outer Shelf',
+                    'Norwegian Trench','English Channel']
+    # For file names
+    region_abbrev = ['wholedomain','shallow','deep','northsea',
+                     'outershelf','nortrench','engchannel']
+    season_names = ['Annual','DJF','MAM','JJA','SON']
+    n_regions = len(region_names)
+    n_seasons = len(season_names)
+    for rr in range(0,n_regions):
+        for ss in range(0,n_seasons):
+            stats_regional_tmp = stats_regional.isel(region=rr, season=ss,
+                                                     depth=np.arange(0,150))
+            
+            title_tmp = 'Mean Temperature Profiles (degC) | '+region_names[rr]+' | '+season_names[ss]
+            fn_out = 'mean_prof_tem_'+season_names[ss]+'_'+region_abbrev[rr]+'.eps'
+            fn_out = os.path.join(dn_output_figs, fn_out)
+            legend = ['Model','EN4']
+            plot_profile(stats_regional_tmp.depth[4:], 
+                          [stats_regional_tmp.mean_prof_mod_tem[4:], 
+                          stats_regional_tmp.mean_prof_obs_tem[4:]],
+                          title = title_tmp, fn_out = fn_out,
+                          legend_names = legend)
+            
+            title_tmp = 'Mean Salinity Profiles (PSU) | '+region_names[rr]+' | '+season_names[ss]
+            fn_out = 'mean_prof_sal_'+season_names[ss]+'_'+region_abbrev[rr]+'.eps'
+            fn_out = os.path.join(dn_output_figs, fn_out)
+            legend = ['Model','EN4']
+            plot_profile(stats_regional_tmp.depth[4:], 
+                          [stats_regional_tmp.mean_prof_mod_sal[4:], 
+                          stats_regional_tmp.mean_prof_obs_sal[4:]],
+                          title = title_tmp, fn_out = fn_out, 
+                          legend_names = legend)
+            
+            legend = ['CO9_AMM15p0']
+            
+            title_tmp = '$\Delta T$ |' + region_names[rr] +' | '+season_names[ss]
+            fn_out = 'prof_error_tem_'+season_names[ss]+'_'+region_abbrev[rr]+'.eps'
+            fn_out = os.path.join(dn_output_figs, fn_out)
+            plot_profile_centred(stats_regional_tmp.depth[4:], 
+                         stats_regional_tmp.prof_error_tem[4:],
+                         title = title_tmp, fn_out = fn_out,
+                         legend_names = legend)
+            
+            title_tmp = '$\Delta S$ |' + region_names[rr] +' | '+season_names[ss]
+            fn_out = 'prof_error_sal_'+season_names[ss]+'_'+region_abbrev[rr]+'.eps'
+            fn_out = os.path.join(dn_output_figs, fn_out)
+            plot_profile_centred(stats_regional_tmp.depth[4:], 
+                         stats_regional_tmp.prof_error_sal[4:],
+                         title = title_tmp, fn_out = fn_out,
+                         legend_names = legend)
+        
+def plot_profile(depth, variables, title, fn_out, legend_names= {} ):
 
-def read_monthly_model_nemo(fn_nemo_dat, fn_nemo_domain):
-    '''
-    '''
-    nemo = coast.NEMO(fn_nemo_data, fn_nemo_domain, chunks = {}, multiple=True)
-    return nemo.dataset[['temperature','salinity', 'e3t','depth_0']]
+    fig = plt.figure(figsize=(3.5,7))
+    ax = plt.subplot(111)
+    
+    if type(variables) is not list:
+        variables = [variables]
 
-def write_stats_to_file(stats, dn_output):
-    '''
-    Writes the stats xarray dataset to a new netcdf file in the output 
-    directory. stats is the dataset created by the calculate_statistics()
-    routine. dn_output is the specified output directory for the script.
-    '''
+    for vv in variables:
+        ax.plot(vv.squeeze(), depth.squeeze())
+    plt.gca().invert_yaxis()
+    plt.ylabel('Depth (m)')
+    plt.grid()
+    plt.legend(legend_names)
+    plt.title(title, fontsize=12)
+    print("  >>>>>  Saving: " + fn_out)
+    plt.savefig(fn_out)
+    plt.close()
+    return fig, ax
+
+def plot_profile_centred(depth, variables, title, fn_out, legend_names= {} ):
+
+    fig = plt.figure(figsize=(3.5,7))
+    ax = plt.subplot(111)
+    
+    if type(variables) is not list:
+        variables = [variables]
+
+    for vv in variables:
+        ax.plot(vv.squeeze(), depth.squeeze())
+        
+    xmax = np.nanmax(np.abs(vv))
+    plt.xlim(-xmax-0.05*xmax, xmax+0.05*xmax)
+    ymax = np.nanmax(np.abs(depth))
+    plt.plot([0,0],[-1e7,1e7], linestyle='--',linewidth=1,color='k')
+    plt.ylim(0,ymax)
+    plt.gca().invert_yaxis()
+    plt.ylabel('Depth (m)')
+    plt.grid()
+    plt.legend(legend_names)
+    plt.title(title, fontsize=12)
+    print("  >>>>>  Saving: " + fn_out)
+    plt.savefig(fn_out)
+    plt.close()
+    return fig, ax
+
+def geo_scatter_profiles(var, title, fn_out, sf=3):
+    cmax = np.nanmean(var) + sf*np.nanstd(var)
+    cmin = np.nanmean(var) - sf*np.nanstd(var)
+    scatter_kwargs = {"cmap":"seismic", "vmin":-2, "vmax":2, 'marker':'s',
+                      'edgecolors':None}
+    sca = plot_util.geo_scatter(var.longitude, var.latitude, 
+                c = var, s=.5, scatter_kwargs=scatter_kwargs, title = title)
+    print("  >>>>>  Saving: " + fn_out)
+    plt.savefig(fn_out)
+    plt.close()
     return
 
-def add_one_month(t):
-    """Return a `datetime.date` or `datetime.datetime` (as given) that is
-    one month earlier.
-    
-    Note that the resultant day of the month might change if the following
-    month has fewer days:
-    
-        >>> add_one_month(datetime.date(2010, 1, 31))
-        datetime.date(2010, 2, 28)
-    """
-    import datetime
-    one_day = datetime.timedelta(days=1)
-    one_month_later = t + one_day
-    while one_month_later.month == t.month:  # advance to start of next month
-        one_month_later += one_day
-    target_month = one_month_later.month
-    while one_month_later.day < t.day:  # advance to appropriate day
-        one_month_later += one_day
-        if one_month_later.month != target_month:  # gone too far
-            one_month_later -= one_day
-            break
-    return one_month_later
+def geo_scatter_profiles_abs(var, title, fn_out, sf=3):
+    cmax = np.nanmean(var) + sf*np.nanstd(var)
+    cmin = np.nanmean(var) - sf*np.nanstd(var)
+    cmin = np.max([cmin, 0])
+    scatter_kwargs = {"cmap":"viridis", "vmin":cmin, "vmax":cmax}
+    sca = plot_util.geo_scatter(var.longitude, var.latitude, 
+                c = var, s=1, scatter_kwargs=scatter_kwargs, title = title)
+    print("  >>>>>  Saving: " + fn_out)
+    plt.savefig(fn_out)
+    plt.close()
+    return
+
+
+def read_stats_profiles(fn_profile_stats):
+    return xr.open_mfdataset(fn_profile_stats, chunks={})
+
+def read_stats_regional(fn_regional_stats):
+    return xr.open_dataset(fn_regional_stats, chunks={})
 
 if __name__ == '__main__':
     main()

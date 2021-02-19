@@ -2,40 +2,33 @@
 @author: Dave (dbyrne@noc.ac.uk)
 """
 
-fn_nemo_harmonics = ""
+fn_nemo_data = ""
 fn_nemo_domain    = ""
-
-dn_tidal_harmonics = ""
+fn_gesla = ""
 
 dn_output = ""
-
-constituents = []
-
-
-
-
 
 ##############################################################################
 
 import coast
 import numpy as np
+import utide
 import matplotlib.pyplot as plt
 
 def main():
     print('Main')
+    
+    mod = read_model_ssh(fn_nemo_data, fn_nemo_domain)
+    obs = read_observed_ssh(fn_gesla)
 
 
-def read_harmonic_obs(path, ):
-    return
+def read_model_ssh(fn_nemo_data, fn_nemo_domain ):
+    nemo = coast.NEMO(fn_nemo_data, fn_nemo_domain)
+    return nemo.ssh
 
-def plot_harmonics_on_map():
-    return
-
-def plot_stats_on_map():
-    return
-
-def write_stats_to_file():
-    return
+def read_observed_ssh(fn_gesla):
+    tg_list = coast.TIDEGAUGE.create_multiple_tidegauge(fn_gesla)
+    return tg_list
 
 if __name__ == '__main__':
     main()

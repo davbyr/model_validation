@@ -127,14 +127,6 @@ def main():
     print(' 5. Data compared, stats calculated.')
     
     # ----------------------------------------------------
-    # 6. Plot and save error stats on maps.
-    plot_amplitude_errors_on_map(stats, dn_output)
-    plot_abs_amplitude_errors_on_map(stats, dn_output)
-    plot_phase_errors_on_map(stats, dn_output)
-    plot_proportional_amplitude_errors_on_map(stats, dn_output)
-    print(' 6. Plots saved to: ' + dn_output)
-    
-    # ----------------------------------------------------
     # 7. Write stats to new netcdf file
     write_stats_to_file(stats, dn_output)
     print(' 7. Stats netcdf file saved to: ' + dn_output)
@@ -243,101 +235,6 @@ def calculate_statistics(model_harmonics, obs_harmonics):
                      ),
                      attrs = dict(description='stats'))
     return stats
-
-def plot_amplitudes_map(model_harmonics, obs_harmonics, dn_output):
-    ''' Plots modelled and obs amplitudes on a geographical map using 
-    COAsT and cartopy. See plot_amplitude_errors_on_map() for more info'''
-    return
-
-def plot_phases_map(model_harmonics, obs_harmonics, dn_output):
-    ''' Plots modelled and obs phases on a geographical map using 
-    COAsT and cartopy. See plot_amplitude_errors_on_map() for more info'''
-    return
-
-def plot_amplitude_errors_on_map(stats, dn_output):
-    ''' Plots proportional amplitude errors on a geographical map using 
-    COAsT and cartopy. See plot_amplitude_errors_on_map() for more info'''
-    
-    for cc in range(0,len(stats.constituent)):
-        stats_tmp = stats.isel(constituent=cc)
-        cmax = np.nanmean(stats_tmp.error_a) + 3*np.nanstd(stats_tmp.error_a)
-        scatter_kwargs = {"cmap":"coolwarm", "marker":"o", "ec":[0,0,0], 
-                          'linewidth':0.5, "vmin":-cmax, "vmax":cmax}
-        const_str = str(stats_tmp.constituent_name.values)
-        title = 'Amplitude Error (m) | ' + run_name + ' | ' + const_str
-        sca = coastpu.geo_scatter(stats.longitude, stats.latitude, 
-                    c = stats_tmp.error_a, s=15,
-                    scatter_kwargs=scatter_kwargs, title = title)
-        fn_save = run_name + "_amplitude_error_"+const_str + '.eps'
-        print("  >>>>>  Saving: "+ fn_save)
-        plt.savefig(os.path.join(dn_output, fn_save))
-        plt.close()
-    return
-
-def plot_phase_errors_on_map(stats, dn_output):
-    ''' Plots proportional amplitude errors on a geographical map using 
-    COAsT and cartopy. See plot_amplitude_errors_on_map() for more info'''
-    
-    for cc in range(0,len(stats.constituent)):
-        stats_tmp = stats.isel(constituent=cc)
-        cmax = np.nanmean(stats_tmp.error_g) + 3*np.nanstd(stats_tmp.error_g)
-        cmin = np.nanmean(stats_tmp.error_g) - 3*np.nanstd(stats_tmp.error_g)
-        cmin = np.max([cmin,0])
-        scatter_kwargs = {"cmap":"Reds", "marker":"o", "ec":[0,0,0], 
-                          'linewidth':0.5, "vmin":cmin, "vmax":cmax}
-        const_str = str(stats_tmp.constituent_name.values)
-        title = 'Phase Error (deg) | ' + run_name + ' | ' + const_str
-        sca = coastpu.geo_scatter(stats.longitude, stats.latitude, 
-                    c = stats_tmp.error_g, s=15,
-                    scatter_kwargs=scatter_kwargs, title = title)
-        fn_save = run_name + "_phase_error_"+const_str + '.eps'
-        print("  >>>>>  Saving: "+ fn_save)
-        plt.savefig(os.path.join(dn_output, fn_save))
-        plt.close()
-    return
-
-def plot_abs_amplitude_errors_on_map(stats, dn_output):
-    ''' Plots proportional amplitude errors on a geographical map using 
-    COAsT and cartopy. See plot_amplitude_errors_on_map() for more info'''
-    for cc in range(0,len(stats.constituent)):
-        stats_tmp = stats.isel(constituent=cc)
-        cmax = np.nanmean(stats_tmp.abs_error_a) + 3*np.nanstd(stats_tmp.abs_error_a)
-        cmin = np.nanmean(stats_tmp.abs_error_a) - 3*np.nanstd(stats_tmp.abs_error_a)
-        cmin = np.max([cmin,0])
-        scatter_kwargs = {"cmap":"Reds", "marker":"o", "ec":[0,0,0], 
-                          'linewidth':0.5, "vmin":cmin, "vmax":cmax}
-        const_str = str(stats_tmp.constituent_name.values)
-        title = 'Absolute Amplitude Error (m) | ' + run_name + ' | ' + const_str
-        sca = coastpu.geo_scatter(stats.longitude, stats.latitude, 
-                    c = stats_tmp.abs_error_a, s=15,
-                    scatter_kwargs=scatter_kwargs, title = title)
-        fn_save = run_name + "_abs_amp_error_"+const_str + '.eps'
-        print("  >>>>>  Saving: "+ fn_save)
-        plt.savefig(os.path.join(dn_output, fn_save))
-        plt.close()
-    return
-
-def plot_proportional_amplitude_errors_on_map(stats, dn_output):
-    ''' Plots proportional amplitude errors on a geographical map using 
-    COAsT and cartopy. See plot_amplitude_errors_on_map() for more info'''
-    for cc in range(0,len(stats.constituent)):
-        stats_tmp = stats.isel(constituent=cc)
-        cmax = np.nanmean(stats_tmp.prop_error_a) + 3*np.nanstd(stats_tmp.prop_error_a)
-        cmin = -cmax
-        cmax = np.min([cmax, 1])
-        cmin = np.max([cmin,-1])
-        scatter_kwargs = {"cmap":"coolwarm", "marker":"o", "ec":[0,0,0], 
-                          'linewidth':0.5, "vmin":cmin, "vmax":cmax}
-        const_str = str(stats_tmp.constituent_name.values)
-        title = 'Proportional Amplitude Error (%) | ' + run_name + ' | ' + const_str
-        sca = coastpu.geo_scatter(stats.longitude, stats.latitude, 
-                    c = stats_tmp.prop_error_a, s=15,
-                    scatter_kwargs=scatter_kwargs, title = title)
-        fn_save = run_name + "_prop_amp_error_"+const_str + '.eps'
-        print("  >>>>>  Saving: "+ fn_save)
-        plt.savefig(os.path.join(dn_output, fn_save))
-        plt.close()
-    return
     
 def write_stats_to_file(stats, dn_output):
     '''
