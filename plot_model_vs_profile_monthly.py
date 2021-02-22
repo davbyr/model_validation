@@ -24,8 +24,8 @@ from scipy import interpolate
  #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
     
 # Input paths and Filenames
-fn_profile_stats = "/Users/dbyrne/Projects/CO9_AMM15/data/en4_stats_by_profile*" 
-fn_regional_stats = "/Users/dbyrne/Projects/CO9_AMM15/data/en4_stats_regional.nc"
+fn_profile_stats = "/Users/dbyrne/Projects/CO9_AMM15/data/output/en4_stats_by_profile*" 
+fn_regional_stats = "/Users/dbyrne/Projects/CO9_AMM15/data/output/en4_stats_regional.nc"
 dn_output_figs = "/Users/dbyrne/Projects/CO9_AMM15/data/figs/"
 
 fn_test = "/Users/dbyrne/Projects/CO9_AMM15/data/en4/EN.4.2.1.f.profiles.g10.200403.nc"

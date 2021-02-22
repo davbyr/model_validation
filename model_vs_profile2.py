@@ -600,7 +600,7 @@ def main():
     prof_error_sal = prof_error_sal/prof_sal_N
     
     region_me_tem = region_me_tem/region_me_N_tem
-    region_me_sal = region_me_tem/region_me_N_sal
+    region_me_sal = region_me_sal/region_me_N_sal
     region_surf_me_tem = region_surf_me_tem/region_surf_me_N_tem
     region_surf_me_sal = region_surf_me_tem/region_surf_me_N_sal
     region_bott_me_tem = region_bott_me_tem/region_bott_me_N_tem

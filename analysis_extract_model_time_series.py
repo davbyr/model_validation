@@ -20,6 +20,10 @@ import os
 '''
 
 def define_locations_to_extract():
+    ''' Routine for defining the lat/lon locations to extract from model data.
+    This should return numpy arrays of longitude and latitude. This can be done
+    manually or by reading data from another file and extracting lists of 
+    locations'''
     
     extract_lon = np.arange(-10,15,2)
     extract_lat = np.arange(40,65,2)
@@ -27,6 +31,10 @@ def define_locations_to_extract():
     return extract_lon, extract_lat
 
 def read_model_nemo():
+    ''' Routine for reading NEMO model data using COAsT.
+    This should return numpy arrays of longitude and latitude. This can be done
+    manually or by reading data from another file and extracting lists of 
+    locations'''
     fn_nemo_data = '/Users/dbyrne/Projects/CO9_AMM15/data/nemo/20*'
     fn_nemo_domain = '/Users/dbyrne/Projects/CO9_AMM15/data/nemo/CO7_EXACT_CFG_FILE.nc'
     model = coast.NEMO(fn_nemo_data, fn_nemo_domain, grid_ref = 't-grid', 
@@ -38,8 +46,7 @@ def read_model_nemo():
     model['landmask'] = (['y_dim','x_dim'],~domain.top_level[0].values.astype(bool))
     return model
 
-def extract_nearest_points_using_coast(model, extract_lon, extract_lat, 
-                                       check_distance=10):
+def extract_nearest_points_using_coast(model, extract_lon, extract_lat):
     # Use COAsT general_utils.nearest_indices_2D routine to work out the model
     # indices we want to extract
     ind2D = general_utils.nearest_indices_2D(model.longitude, model.latitude,
@@ -51,14 +58,13 @@ def extract_nearest_points_using_coast(model, extract_lon, extract_lat,
     # Rename the index dimension to 'location'
     indexed = indexed.rename({'dim_0':'location'})
     
+    # Determine distances from extracted locations and save to dataset.
+    # Can be used to check points outside of domain or similar problems.
     indexed_dist = general_utils.calculate_haversine_distance(extract_lon, 
                                                           extract_lat, 
                                                           indexed.longitude.values,
                                                           indexed.latitude.values)
-    locations_to_keep = np.where(indexed_dist <= check_distance)[0]
-    # Keep only those locations that are within the critical distance of the 
-    # locations to extract (removes points outside of domain)
-    indexed = indexed.isel(location = locations_to_keep)
+    indexed['dist_from_extract_location'] = ('location', indexed_dist)
     return indexed
 
 def write_timeseries_to_file(indexed, fn_timeseries):
@@ -76,8 +82,6 @@ def write_timeseries_to_file(indexed, fn_timeseries):
 
 fn_timeseries = "/Users/dbyrne/Projects/CO9_AMM15/data/test.nc"
 
-check_distance = 10
-
 '''
  #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
  # MAIN SCRIPT
@@ -91,8 +95,7 @@ model = read_model_nemo()
 extract_lon, extract_lat = define_locations_to_extract()
 
 # Extract model locations nearest to extract_lon and extract_lat
-indexed = extract_nearest_points_using_coast(model, extract_lon, extract_lat,
-                                             check_distance)
+indexed = extract_nearest_points_using_coast(model, extract_lon, extract_lat)
 
 # Write to file
 write_timeseries_to_file(indexed, fn_timeseries)
