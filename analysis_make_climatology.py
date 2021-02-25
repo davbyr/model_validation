@@ -29,11 +29,38 @@ import xarray as xr
 
 '''
  #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+ # MAIN SCRIPT
+ #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+'''
+
+def main():
+    
+    # SET VARIABLES #######################################
+    
+    # Paths to NEMO files if using
+    fn_nemo_data = '/Users/dbyrne/Projects/CO9_AMM15/data/nemo/20*'
+    fn_nemo_domain = '/Users/dbyrne/Projects/CO9_AMM15/data/nemo/CO7_EXACT_CFG_FILE.nc'
+
+    # Define output file
+    fn_out = "/Users/dbyrne/Projects/CO9_AMM15/p0_seasonal_mean.nc"
+    
+    # Define frequency -- Any xarray time string: season, month, etc
+    climatology_frequency = 'season'
+    #######################################################
+    
+    # Use a READ routine to create an xarray dataset
+    data = read_data_input_nemo(fn_nemo_data, fn_nemo_domain)
+    
+    # Calculate the climatology and write to file.
+    calculate_climatology_using_coast(data, climatology_frequency, fn_out)
+
+'''
+ #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
  # FUNCTIONS
  #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 '''
 
-def read_data_input_ostia():
+def read_data_input_ostia(fn_nemo_ostia):
     ''' For reading multiple OSTIA input files to use for analysis '''
     
     fn_ostia = "/Users/dbyrne/Projects/CO9_AMM15/data/ostia/*.nc"
@@ -48,11 +75,9 @@ def read_data_input_ostia():
     
     return data
 
-def read_data_input_nemo():
+def read_data_input_nemo(fn_nemo_data, fn_nemo_domain):
     ''' For reading multiple NEMO data files to use for analysis. Uses COAsT
     to create the xarray dataset.'''
-    fn_nemo_data = '/Users/dbyrne/Projects/CO9_AMM15/data/nemo/20*'
-    fn_nemo_domain = '/Users/dbyrne/Projects/CO9_AMM15/data/nemo/CO7_EXACT_CFG_FILE.nc'
     data = coast.NEMO(fn_nemo_data, fn_nemo_domain, multiple=True,
                       chunks='auto').dataset
     data = data[['temperature','ssh','salinity']]
@@ -64,28 +89,4 @@ def calculate_climatology_using_coast(data, climatology_frequency, fn_out):
     clim_mean = CLIM.make_climatology(data, climatology_frequency, 
                                       fn_out=fn_out)
     return clim_mean
-
-'''
- #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
- # SET VARIABLES
- #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
-'''  
-# Define output file
-fn_out = "/Users/dbyrne/Projects/CO9_AMM15/p0_seasonal_mean.nc"
-
-# Define frequency -- Any xarray time string: season, month, etc
-climatology_frequency = 'month'
-
-
-'''
- #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
- # MAIN SCRIPT
- #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
-'''
-# Use a READ routine to create an xarray dataset
-data = read_data_input_ostia()
-
-# Calculate the climatology and write to file.
-clim_mean = calculate_climatology_using_coast(data, climatology_frequency, 
-                                              fn_out)
 

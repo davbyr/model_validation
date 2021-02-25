@@ -1,6 +1,6 @@
 """
 @author: David Byrne (dbyrne@noc.ac.uk)
-v1.0 (20-01-2021)
+v1.01 (25-02-2021)
 
 This is a script for regridding generic netCDF data files using the xesmf
 and xarray/dask libraries. The result is a new xarray dataset, which contains
@@ -46,13 +46,56 @@ import numpy as np
 from dask.diagnostics import ProgressBar
 import os
 
+
+'''
+ #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+ # MAIN SCRIPT
+ #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+'''
+
+def main():
+    
+    # SET VARIABLES #######################################
+    # NEMO data and domain files if using read_model_nemo()
+    fn_nemo_data = '<FULL PATH TO NEMO DATA FILE>'
+    fn_nemo_domain = '<FULL PATH TO DOMAIN FILE>'
+    
+    # OSTIA FILES - Example output grid
+    fn_ostia = "<FULL PATH TO OSTIA DATA>"
+
+    # The new file containing regridded data
+    fn_regridded = "<FULL PATH TO REGRIDDED OUTPUT FILE>"
+    # File containing regridding weights, if write_weights is True
+    fn_weights = "<FULL PATH TO REGRIDDING WEIGHTS FILE>"
+    
+    # Which files to write. 
+    do_write_weights = False
+    do_write_regridded = True
+    
+    # Regridding method. Any XESMF method: bilinear, conservative, cubic, etc
+    interp_method = 'bilinear'
+    #######################################################
+    
+    # Define input and output datasets here.
+    ds_in = read_data_for_regridding_nemo(fn_nemo_data, fn_nemo_domain)
+    ds_out = read_data_for_regridding_ostia(fn_ostia)
+    
+    # Calculate weights and regrid the data
+    weights, regridded = regrid_using_xesmf(ds_in, ds_out, interp_method)
+    
+    if do_write_weights:
+        write_weights_to_file(weights, fn_weights)
+    
+    if do_write_regridded:
+        write_regridded_to_file(regridded, fn_regridded)
+
 '''
  #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
  # FUNCTIONS
  #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 '''
 
-def read_data_for_regridding_nemo():
+def read_data_for_regridding_nemo(fn_nemo_data, fn_nemo_domain):
     ''' For reading NEMO data into the right dataset format for XESMF.
     Ouput from this function must be an xarray.Dataset or xarray.DataArray 
     object. Longitude and latitude variables must be named 'lon' and 'lat' 
@@ -61,9 +104,6 @@ def read_data_for_regridding_nemo():
     ocean and 0 over the land.
     '''
     import coast
-    # NEMO FILES
-    fn_nemo_data = '/Users/dbyrne/Projects/CO9_AMM15/data/climatology/p0_seasonal_mean.nc'
-    fn_nemo_domain = '/Users/dbyrne/Projects/CO9_AMM15/data/nemo/CO7_EXACT_CFG_FILE.nc'
     
     # Use coast to create NEMO object and extract dataset. Only keep variables
     # of interest.
@@ -81,7 +121,7 @@ def read_data_for_regridding_nemo():
     
     return ds
     
-def read_data_for_regridding_ostia():
+def read_data_for_regridding_ostia(fn_ostia):
     ''' For reading OSTIA data into the right dataset format for XESMF.
     Ouput from this function must be an xarray.Dataset or xarray.DataArray 
     object. Longitude and latitude variables must be named 'lon' and 'lat' 
@@ -89,9 +129,6 @@ def read_data_for_regridding_ostia():
     dimensions named 'lon' and 'lat'. If using, "mask" should be 1s over the 
     ocean and 0 over the land.
     '''
-    
-    # OSTIA FILES
-    fn_ostia = "/Users/dbyrne/Projects/CO9_AMM15/data/climatology/ostia_seasonal_mean.nc"
     
     # Read OSTIA data using xarray. Variables are already named appropriately.
     # Extract the first time index of mask and redefine to be a landmask,
@@ -150,41 +187,6 @@ def write_regridded_to_file(regridded, fn_regridded):
         os.remove(fn_regridded)
     with ProgressBar():
         regridded.to_netcdf(fn_regridded)
-      
-'''
- #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
- # SET VARIABLES
- #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
-'''
-# DEFINE OUTPUT FILES
-
-# The new file containing regridded data
-fn_regridded = "/Users/dbyrne/Projects/CO9_AMM15/nemo_clim_regridded_to_ostia2.nc"
-# File containing regridding weights, if write_weights is True
-fn_weights = "/Users/dbyrne/Projects/CO9_AMM15/regrid_weights.nc"
-
-# Which files to write. 
-do_write_weights = False
-do_write_regridded = True
-
-# Regridding method. Any XESMF method: bilinear, conservative, cubic, etc
-interp_method = 'bilinear'
-      
-'''
- #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
- # MAIN SCRIPT
- #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
-'''
-
-# Define input and output datasets here.
-ds_in = read_data_for_regridding_nemo()
-ds_out = read_data_for_regridding_ostia()
-
-# Calculate weights and regrid the data
-weights, regridded = regrid_using_xesmf(ds_in, ds_out, interp_method)
-
-if do_write_weights:
-    write_weights_to_file(weights, fn_weights)
-
-if do_write_regridded:
-    write_regridded_to_file(regridded, fn_regridded)
+        
+def __main__():
+    main()
