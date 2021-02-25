@@ -98,8 +98,12 @@ def read_model_nemo(fn_nemo_data, fn_nemo_domain):
     
     # Create a landmask and place into dataset
     # Here I create a landmask from the top_level variable in the domain file.
+    # This should be named 'landmask'.
     domain = xr.open_dataset(fn_nemo_domain, chunks = {})
     model['landmask'] = (['y_dim','x_dim'],~domain.top_level[0].values.astype(bool))
+    
+    # If no mask needed, set to None (uncomment below)
+    # model['landmask'] = None
     return model
 
 def extract_nearest_points_using_coast(model, extract_lon, extract_lat):
