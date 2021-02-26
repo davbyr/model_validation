@@ -11,6 +11,8 @@ to file. The script is modular in nature, with 'read' functions, functions
 for defining latitude/longitudes and functions for doing the extraction. By 
 default, the script is set up to read NEMO data (using COAsT) in an xarray
 dataset and extract locations around the UK (Liverpool and Southampton).
+CHANGE the contents of define_lcoations_to_extract() to set extraction
+longitude/latitudes.
 
 Any functions can be changed, and as long as the correct data format is 
 adhered to, the rest of the script should continue to work. Model data
@@ -19,7 +21,12 @@ coordinate names (dims = (x_dim, y_dim, z_dim, t_dim), coords = (time,
 latitude, longitude, depth)). Longitudes and latitudes to extract should be
 provided as 1D numpy arrays.
 
-
+The saved timeseries file can be opened using xarray:
+    timeseries = xr.open_dataset(file_timeseries, chunks={})
+Inspecting this object will reveal a new 'location' dimension, which is 
+the locations in order of input into the script. There will also be the time
+dimension (t_dim) and if the input data had depth, then z_dim will be retained.
+If only surface values are needed, make sure 
 """
 # Import necessary packages
 
@@ -40,21 +47,25 @@ import os
 '''
 
 def main():
-    
-    # SET VARIABLES #######################################
+    # SET VARIABLES #########################################################
     # NEMO data and domain files if using read_model_nemo()
     fn_nemo_data = '<FULL PATH TO NEMO DATA FILE>'
-    fn_nemo_domain = '<FULL PATH TO DOMAIN FILE>'
+    fn_nemo_domain = '<FULL PATH TO NEMO DOMAIN FILE>'
 
     # Output file to save timeseries -- any existing files will be deleted.
     fn_timeseries = "<FULL PATH TO DESIRED OUTPUT FILE>"
-    #######################################################
+    
+    # Which depth levels to extract. 0 = surface. set to 'all' to extract
+    # all depths. Alternatively, set to an array of depth levels.
+    # If file has no depth dimension, will do nothing.
+    depth_levels = 0
+    #########################################################################
     
     # Read or create new longitude/latitudes.
     extract_lon, extract_lat = define_locations_to_extract()
     
     # Read data to extract from
-    model = read_model_nemo(fn_nemo_data, fn_nemo_domain)
+    model = read_model_nemo(fn_nemo_data, fn_nemo_domain, depth_levels)
     
     # Extract model locations nearest to extract_lon and extract_lat
     indexed = extract_nearest_points_using_coast(model, extract_lon, extract_lat)
@@ -81,7 +92,7 @@ def define_locations_to_extract():
     
     return extract_lon, extract_lat
 
-def read_model_nemo(fn_nemo_data, fn_nemo_domain):
+def read_model_nemo(fn_nemo_data, fn_nemo_domain, depth_levels):
     ''' Routine for reading NEMO model data using COAsT.
     This should return numpy arrays of longitude and latitude. This can be done
     manually or by reading data from another file and extracting lists of 
@@ -90,12 +101,14 @@ def read_model_nemo(fn_nemo_data, fn_nemo_domain):
     # Read NEMO data into a COAsT object (correct format)
     model = coast.NEMO(fn_nemo_data, fn_nemo_domain, grid_ref = 't-grid', 
                        multiple=True, chunks={'time_counter':1})
+    
     # Extract the xarray dataset and desired variables
-    model = model.dataset[['temperature','salinity','ssh']]
+    model = model.dataset
     
-    # Take only the top depth level
-    # model = model.isel(z_dim=0)
-    
+    # If dataset has a depth dimension and user has specified depth levels
+    if depth_levels != 'all' and 'z_dim' in model.dims:
+        model = model.isel(z_dim=depth_levels)
+        
     # Create a landmask and place into dataset
     # Here I create a landmask from the top_level variable in the domain file.
     # This should be named 'landmask'.
@@ -143,9 +156,8 @@ def write_timeseries_to_file(indexed, fn_timeseries):
     ''' Write extracted data to file '''
     if os.path.exists(fn_timeseries):
         os.remove(fn_timeseries)
-    print('Writing to file. For large datasets over multiple files, this may \
-          take some time')
+    print('Writing to file. For large datasets over multiple files, this may take some time')
     indexed.to_netcdf(fn_timeseries)
     
-def __main__():
+if __name__ == '__main__':
     main()
