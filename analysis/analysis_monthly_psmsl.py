@@ -89,10 +89,10 @@ class analyse_monthly_ssh():
         nemo_extracted['time'] = ('t_dim', [datetime(nemo_year[ii], nemo_month[ii], 1) for ii in range(0, len(nemo_month)) ])
         psmsl['time'] = ('time', [datetime(psmsl_year[ii], psmsl_month[ii], 1) for ii in range(0, len(psmsl_month)) ] )
         print("analyse_monthly_ssh: Model and obs times aligned")
-        psmsl = psmsl.interp(time=nemo_extracted.time, method='nearest')
         return nemo_extracted, psmsl
     
     def subtract_means(self, nemo_extracted, psmsl):
+        psmsl = psmsl.interp(time=nemo_extracted.time, method='nearest')
         psmsl['height'] = psmsl['height'] - psmsl['height'].mean(dim='t_dim')
         nemo_extracted = nemo_extracted - nemo_extracted.mean(dim='t_dim')
         print("analyse_monthly_ssh: Means during time period subtracted from data")
@@ -110,10 +110,7 @@ class analyse_monthly_ssh():
         stats = xr.Dataset(coords = dict(
                                 time = ('time', nemo_extracted.time.values),
                                 longitude = ('port', psmsl.longitude.values),
-                                latitude = ('port', psmsl.latitude.values)),
-                           data_vars = dict(
-                                nemo_extracted = (['port','time'], nemo_extracted.values.T),
-                                psmsl_extracted = (['port','time'], psmsl.height.values)))
+                                latitude = ('port', psmsl.latitude.values)))
         
         for pp in range(0, psmsl.dims['port']):
             port_mod = nemo_extracted.isel(port=pp)
@@ -155,10 +152,3 @@ class analyse_monthly_ssh():
             os.remove(fn_out)
         stats.to_netcdf(fn_out)
         print("analyse_monthly_ssh: Statistics written to file")
-        
-fn_nemo_data = "/Users/dbyrne/Projects/CO9_AMM15/data/nemo/20*"
-fn_nemo_domain = "/Users/dbyrne/Projects/CO9_AMM15/data/nemo/CO7_EXACT_CFG_FILE.nc"
-fn_psmsl_monthly = "/Users/dbyrne/data/psmsl/rlr_monthly.nc"
-fn_out = "/Users/dbyrne/Projects/CO9_AMM15/data/analysis/p0/ssh_monthly_stats.nc"
-
-analyse_monthly_ssh(fn_nemo_data, fn_nemo_domain, fn_psmsl_monthly, fn_out)
