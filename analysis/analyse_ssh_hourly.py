@@ -1,7 +1,3 @@
-import sys
-sys.path.append('/Users/dbyrne/code/COAsT')
-import coast
-import coast.general_utils as gu
 import xarray as xr
 import numpy as np
 from datetime import datetime, timedelta
@@ -16,8 +12,16 @@ class analyse_ssh_hourly():
     
     def __init__(self, fn_nemo_data, fn_nemo_domain, fn_obs, fn_out,
                          thresholds = np.arange(0,2,0.1),
-                         constit_to_save = ['M2', 'S2']):
+                         constit_to_save = ['M2', 'S2', 'K1','O1'],
+                         coast_dev_dir = None):
         
+        if coast_dev_dir is not None:
+            import sys
+            sys.path.append(coast_dev_dir)
+        
+        import coast
+        import coast.general_utils as gu
+            
         nemo = self.read_nemo_ssh(fn_nemo_data, fn_nemo_domain)
         
         landmask = self.read_nemo_landmask_using_top_level(fn_nemo_domain)
@@ -365,10 +369,3 @@ class analyse_ssh_hourly():
         r[r<-180] = r[r<-180] + 360
         r[r>180] = r[r>180] - 360
         return r
-    
-fn_nemo_data = "/Users/dbyrne/Projects/CO9_AMM15/data/nemo/shelftmb/*.nc"
-fn_nemo_domain = "/Users/dbyrne/Projects/CO9_AMM15/data/nemo/CO7_EXACT_CFG_FILE.nc"
-fn_obs = "/Users/dbyrne/data/bodc/tg_amm15.nc"
-fn_out = "/Users/dbyrne/Projects/CO9_AMM15/data/analysis/p0/ssh_hourly_stats.nc"
-
-analyse_ssh_hourly(fn_nemo_data, fn_nemo_domain, fn_obs, fn_out)
