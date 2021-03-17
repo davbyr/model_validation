@@ -8,19 +8,17 @@ import utide as ut
 import scipy.signal as signal
 import os
 
+import sys
+sys.path.append('/work/n01/n01/dbyrne/CO9_AMM15/code/COAsT')
+import coast
+import coast.general_utils as gu
+
 class analyse_ssh_hourly():
     
     def __init__(self, fn_nemo_data, fn_nemo_domain, fn_obs, fn_out,
                          thresholds = np.arange(0,2,0.1),
-                         constit_to_save = ['M2', 'S2', 'K1','O1'],
-                         coast_dev_dir = None):
+                         constit_to_save = ['M2', 'S2', 'K1','O1']):
         
-        if coast_dev_dir is not None:
-            import sys
-            sys.path.append(coast_dev_dir)
-        
-        import coast
-        import coast.general_utils as gu
             
         nemo = self.read_nemo_ssh(fn_nemo_data, fn_nemo_domain)
         
