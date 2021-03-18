@@ -324,7 +324,7 @@ class analyse_ssh_hourly():
                              chunks):
         print("analyse_ssh_hourly: a")
         
-        file_list = glob(fn_nemo_data)
+        file_list = glob.glob(fn_nemo_data)
         
         file=file_list[0]
         nemo = coast.NEMO(file, fn_nemo_domain, chunks=chunks).dataset
