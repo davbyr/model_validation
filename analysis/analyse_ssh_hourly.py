@@ -11,6 +11,7 @@ import matplotlib.dates as mdates
 import utide as ut
 import scipy.signal as signal
 import os
+import glob
 
 class analyse_ssh_hourly():
     
@@ -19,15 +20,17 @@ class analyse_ssh_hourly():
                          constit_to_save = ['M2', 'S2', 'K1','O1'], 
                          chunks = {'time_counter':744}):
         
-        nemo = self.read_nemo_ssh(fn_nemo_data, fn_nemo_domain, chunks)
+        #nemo = self.read_nemo_ssh(fn_nemo_data, fn_nemo_domain, chunks)
         
         landmask = self.read_nemo_landmask_using_top_level(fn_nemo_domain)
         
         obs = self.read_obs_data(fn_obs)
         
-        obs = self.subset_obs_by_lonlat(nemo, obs)
+        #obs = self.subset_obs_by_lonlat(nemo, obs)
         
-        nemo_extracted, obs = self.extract_obs_locations(nemo, obs, landmask)
+        #nemo_extracted, obs = self.extract_obs_locations(nemo, obs, landmask)
+        nemo_extracted = self.read_nemo_oneatatime(fn_nemo_data, fn_nemo_domain, 
+                                                   obs, landmask, chunks)
         
         obs = self.align_timings(nemo_extracted, obs)
         
@@ -316,6 +319,38 @@ class analyse_ssh_hourly():
                                   multiple=True, chunks=chunks).dataset
         print("analyse_ssh_hourly: Done")
         return nemo['ssh']
+    
+    def read_nemo_oneatatime(self, fn_nemo_data, fn_nemo_domain, obs, landmask, 
+                             chunks):
+        print("analyse_ssh_hourly: a")
+        
+        file_list = glob(fn_nemo_data)
+        
+        file=file_list[0]
+        nemo = coast.NEMO(file, fn_nemo_domain, chunks=chunks).dataset
+        
+        ind2D = gu.nearest_indices_2D(nemo.longitude, nemo.latitude, 
+                                    obs.longitude, obs.latitude,
+                                    mask = landmask)
+        print("analyse_ssh_hourly: b")
+        nemo_list = []
+        
+        for ff in range(0,len(file_list)):
+            file = file_list[ff]
+            print(file)
+            nemo = coast.NEMO(file, fn_nemo_domain, chunks=chunks).dataset
+            nemo = nemo['ssh']
+            nemo_ext = nemo.isel(x_dim = ind2D[0], y_dim = ind2D[1]).load()
+            nemo_ext = nemo_ext.swap_dims({'dim_0':'port'})
+            nemo_list.append(nemo_ext)
+        
+        print("analyse_ssh_hourly: c")
+        
+        nemo = xr.merge(nemo_list)
+        
+        print('d')
+        
+        return nemo
     
     def read_nemo_landmask_using_top_level(self, fn_nemo_domain):
         print("analyse_ssh_hourly: Reading landmask")
