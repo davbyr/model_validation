@@ -12,6 +12,7 @@ import utide as ut
 import scipy.signal as signal
 import os
 import glob
+from dask.diagnostics import ProgressBar
 
 class analyse_ssh_hourly():
     
@@ -20,17 +21,17 @@ class analyse_ssh_hourly():
                          constit_to_save = ['M2', 'S2', 'K1','O1'], 
                          chunks = {'time_counter':744}):
         
-        #nemo = self.read_nemo_ssh(fn_nemo_data, fn_nemo_domain, chunks)
+        nemo = self.read_nemo_ssh(fn_nemo_data, fn_nemo_domain, chunks)
         
         landmask = self.read_nemo_landmask_using_top_level(fn_nemo_domain)
         
         obs = self.read_obs_data(fn_obs)
         
-        #obs = self.subset_obs_by_lonlat(nemo, obs)
+        obs = self.subset_obs_by_lonlat(nemo, obs)
         
-        #nemo_extracted, obs = self.extract_obs_locations(nemo, obs, landmask)
-        nemo_extracted = self.read_nemo_oneatatime(fn_nemo_data, fn_nemo_domain, 
-                                                   obs, landmask, chunks)
+        nemo_extracted, obs = self.extract_obs_locations(nemo, obs, landmask)
+        #nemo_extracted = self.read_nemo_oneatatime(fn_nemo_data, fn_nemo_domain, 
+        #                                           obs, landmask, chunks)
         
         obs = self.align_timings(nemo_extracted, obs)
         
@@ -382,8 +383,13 @@ class analyse_ssh_hourly():
                                     obs.longitude, obs.latitude,
                                     mask = landmask)
         print("analyse_ssh_hourly: determined indices, loading data")
-        nemo_extracted = nemo.isel(x_dim = ind2D[0], y_dim = ind2D[1]).load()
+        nemo_extracted = nemo.isel(x_dim = ind2D[0], y_dim = ind2D[1])
         nemo_extracted = nemo_extracted.swap_dims({'dim_0':'port'})
+        
+        print("analyse_ssh_hourly: ata")
+        
+        with ProgressBar():
+            nemo_extracted.load()
         
         # Check interpolation distances
         max_dist = 5
