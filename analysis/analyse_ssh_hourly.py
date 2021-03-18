@@ -292,16 +292,16 @@ class analyse_ssh_hourly():
                         thresh_freq_skew_obs = (['port', 'threshold'], thresh_freq_skew_obs),
                         thresh_int_ntr_mod =(['port', 'threshold'], thresh_int_ntr_mod),
                         thresh_int_ntr_obs = (['port', 'threshold'], thresh_int_ntr_obs),
-                        ntr_mod_clim_var     = (['port','month'], ntr_clim_var.ntr_mod.values.T),
-                        ntr_mod_clim_mean    = (['port','month'], ntr_clim_mean.ntr_mod.values.T),
-                        ntr_mod_monthly_var  = (['port','month'], ntr_monthly_var.ntr_mod.values.T),
-                        ntr_mod_monthly_mean = (['port','month'], ntr_monthly_mean.ntr_mod.values.T),
-                        ntr_mod_monthly_max  = (['port','month'], ntr_monthly_max.ntr_mod.values.T), 
-                        ntr_obs_clim_var     = (['port','month'], ntr_clim_var.ntr_obs.values.T),
-                        ntr_obs_clim_mean    = (['port','month'], ntr_clim_mean.ntr_obs.values.T),
-                        ntr_obs_monthly_var  = (['port','month'], ntr_monthly_var.ntr_obs.values.T),
-                        ntr_obs_monthly_mean = (['port','month'], ntr_monthly_mean.ntr_obs.values.T),
-                        ntr_obs_monthly_max  = (['port','month'], ntr_monthly_max.ntr_obs.values.T))
+                        ntr_mod_clim_var     = (['port','clim_month'], ntr_clim_var.ntr_mod.values.T),
+                        ntr_mod_clim_mean    = (['port','clim_month'], ntr_clim_mean.ntr_mod.values.T),
+                        ntr_mod_monthly_var  = (['port','time_month'], ntr_monthly_var.ntr_mod.values.T),
+                        ntr_mod_monthly_mean = (['port','time_month'], ntr_monthly_mean.ntr_mod.values.T),
+                        ntr_mod_monthly_max  = (['port','time_month'], ntr_monthly_max.ntr_mod.values.T), 
+                        ntr_obs_clim_var     = (['port','clim_month'], ntr_clim_var.ntr_obs.values.T),
+                        ntr_obs_clim_mean    = (['port','clim_month'], ntr_clim_mean.ntr_obs.values.T),
+                        ntr_obs_monthly_var  = (['port','time_month'], ntr_monthly_var.ntr_obs.values.T),
+                        ntr_obs_monthly_mean = (['port','time_month'], ntr_monthly_mean.ntr_obs.values.T),
+                        ntr_obs_monthly_max  = (['port','time_month'], ntr_monthly_max.ntr_obs.values.T))
                         )
         
         self.write_stats_to_file(stats, fn_out)
