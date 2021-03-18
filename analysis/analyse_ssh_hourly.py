@@ -303,28 +303,33 @@ class analyse_ssh_hourly():
         self.write_stats_to_file(stats, fn_out)
         
     def write_stats_to_file(self, stats, fn_out):
+        print("analyse_ssh_hourly: Writing output to file")
         if os.path.exists(fn_out):
             os.remove(fn_out)
         stats.to_netcdf(fn_out)
-        print("analyse_monthly_ssh: Statistics written to file")
+        print("analyse_monthly_ssh: Done")
 
 
     def read_nemo_ssh(self, fn_nemo_data, fn_nemo_domain, chunks):
+        print("analyse_ssh_hourly: Reading NEMO data")
         nemo = coast.NEMO(fn_nemo_data, fn_nemo_domain, 
                                   multiple=True, chunks=chunks).dataset
+        print("analyse_ssh_hourly: Done")
         return nemo['ssh']
     
     def read_nemo_landmask_using_top_level(self, fn_nemo_domain):
+        print("analyse_ssh_hourly: Reading landmask")
         dom = xr.open_dataset(fn_nemo_domain)
         landmask = np.array(dom.top_level.values.squeeze() == 0)
         dom.close()
-        print("analyse_ssh_hourly: landmask defined")
+        print("analyse_ssh_hourly: Done")
         return landmask
     
     def read_obs_data(self, fn_obs):
         return xr.open_dataset(fn_obs)
     
     def subset_obs_by_lonlat(self, nemo, obs):
+        print("analyse_ssh_hourly: Subsetting obs data")
         lonmax = np.nanmax(nemo.longitude)
         lonmin = np.nanmin(nemo.longitude)
         latmax = np.nanmax(nemo.latitude)
@@ -332,14 +337,16 @@ class analyse_ssh_hourly():
         ind = gu.subset_indices_lonlat_box(obs.longitude, obs.latitude, 
                                            lonmin, lonmax, latmin, latmax)
         obs = obs.isel(port=ind[0])
-        print("analyse_ssh_hourly: obs data subsetted")
+        print("analyse_ssh_hourly: Done")
         return obs
     
     def extract_obs_locations(self, nemo, obs, landmask):
+        print("analyse_ssh_hourly: Extracting nearest model points ")
         # Extract model locations
         ind2D = gu.nearest_indices_2D(nemo.longitude, nemo.latitude, 
                                     obs.longitude, obs.latitude,
                                     mask = landmask)
+        print("analyse_ssh_hourly: determined indices, loading data")
         nemo_extracted = nemo.isel(x_dim = ind2D[0], y_dim = ind2D[1]).load()
         nemo_extracted = nemo_extracted.swap_dims({'dim_0':'port'})
         
@@ -352,11 +359,13 @@ class analyse_ssh_hourly():
         keep_ind = interp_dist < max_dist
         nemo_extracted = nemo_extracted.isel(port=keep_ind)
         obs = obs.isel(port=keep_ind)
-        print("analyse_ssh_hourly: obs location extracted from model data")
+        print("analyse_ssh_hourly: Done")
         return nemo_extracted, obs
     
     def align_timings(self, nemo_extracted, obs):
+        print("analyse_ssh_hourly: Aligning obs and model times")
         obs = obs.interp(time = nemo_extracted.time, method = 'nearest')
+        print("analyse_ssh_hourly: Done")
         return obs
     
     def compare_phase(self, g1, g2):
