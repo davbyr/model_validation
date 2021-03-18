@@ -1,3 +1,7 @@
+import sys
+sys.path.append('/work/n01/n01/dbyrne/CO9_AMM15/code/COAsT')
+import coast
+import coast.general_utils as gu
 import xarray as xr
 import numpy as np
 from datetime import datetime, timedelta
@@ -8,19 +12,14 @@ import utide as ut
 import scipy.signal as signal
 import os
 
-import sys
-sys.path.append('/work/n01/n01/dbyrne/CO9_AMM15/code/COAsT')
-import coast
-import coast.general_utils as gu
-
 class analyse_ssh_hourly():
     
     def __init__(self, fn_nemo_data, fn_nemo_domain, fn_obs, fn_out,
                          thresholds = np.arange(0,2,0.1),
-                         constit_to_save = ['M2', 'S2', 'K1','O1']):
+                         constit_to_save = ['M2', 'S2', 'K1','O1'], 
+                         chunks = {'time_counter':744}):
         
-            
-        nemo = self.read_nemo_ssh(fn_nemo_data, fn_nemo_domain)
+        nemo = self.read_nemo_ssh(fn_nemo_data, fn_nemo_domain, chunks)
         
         landmask = self.read_nemo_landmask_using_top_level(fn_nemo_domain)
         
@@ -82,7 +81,7 @@ class analyse_ssh_hourly():
             mod_time = port_mod.time.values
             obs_time = port_obs.time.values
             
-            if len(np.where(~obs_ssh.mask)[0]) < 672:
+            if len(np.where(~obs_ssh.mask)[0]) < 744:
                 skew_mod.append([])
                 skew_obs.append([])
                 continue
@@ -310,9 +309,9 @@ class analyse_ssh_hourly():
         print("analyse_monthly_ssh: Statistics written to file")
 
 
-    def read_nemo_ssh(self, fn_nemo_data, fn_nemo_domain):
+    def read_nemo_ssh(self, fn_nemo_data, fn_nemo_domain, chunks):
         nemo = coast.NEMO(fn_nemo_data, fn_nemo_domain, 
-                                  multiple=True, chunks={'time_counter':168}).dataset
+                                  multiple=True, chunks=chunks).dataset
         return nemo['ssh']
     
     def read_nemo_landmask_using_top_level(self, fn_nemo_domain):
