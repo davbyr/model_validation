@@ -146,7 +146,7 @@ class analyse_ssh_hourly():
         
         # Define Dimension Sizes
         n_port = obs.dims['port']
-        n_time = obs.dims['t_dim']
+        n_time = obs.dims['time']
         n_constit = len(constit_to_save)
         n_thresholds = len(thresholds)
         
@@ -186,12 +186,12 @@ class analyse_ssh_hourly():
                 continue 
             
             # Masked arrays
-            ssh_mod = port_mod.values
+            ssh_mod = port_mod.ssh.values
             ssh_obs = port_obs.ssh.values
             shared_mask = np.logical_or(np.isnan(ssh_mod), np.isnan(ssh_obs))
             ssh_mod[shared_mask] = np.nan
             ssh_obs[shared_mask] = np.nan
-            time_mod = port_mod.time.values
+            time_mod = port_mod.time_instant.values
             time_obs = port_obs.time.values
             
             if np.sum(~np.isnan(ssh_obs)) < 100:
@@ -377,11 +377,11 @@ class analyse_ssh_hourly():
         stats = xr.Dataset(coords = dict(
                         longitude = ('port', obs.longitude.values),
                         latitude = ('port', obs.latitude.values),
-                        time = ('time', obs.time.values),
+                        time = ('time', time_obs),
                         constituent = ('constituent', constit_to_save),
                         threshold = ('threshold', thresholds)),
                    data_vars = dict(
-                        ssh_mod = (['port','time'], nemo_extracted.values.T),
+                        ssh_mod = (['port','time'], nemo_extracted.ssh.values.T),
                         ssh_obs  = (['port','time'], obs.ssh.values),
                         ntr_mod = (['port', 'time'], ntr_mod_all),
                         ntr_obs = (['port','time'], ntr_obs_all),
