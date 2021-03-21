@@ -14,26 +14,135 @@ import os
 import glob
 from dask.diagnostics import ProgressBar
 
+def write_stats_to_file(stats, fn_out):
+    print("analyse_ssh_hourly: Writing output to file")
+    if os.path.exists(fn_out):
+        os.remove(fn_out)
+    stats.to_netcdf(fn_out)
+    print("analyse_monthly_ssh: Done")
+
+
+def read_nemo_ssh(fn_nemo_data, fn_nemo_domain, chunks):
+    print("analyse_ssh_hourly: Reading NEMO data")
+    nemo = coast.NEMO(fn_nemo_data, fn_nemo_domain, 
+                              multiple=True, chunks=chunks).dataset
+    print("analyse_ssh_hourly: Done")
+    return nemo[['ssh', 'time_instant']]
+
+def read_nemo_oneatatime(fn_nemo_data, fn_nemo_domain, obs, landmask, 
+                         chunks):
+    print("analyse_ssh_hourly: a")
+    
+    file_list = glob.glob(fn_nemo_data)
+    
+    file=file_list[0]
+    nemo = coast.NEMO(file, fn_nemo_domain, chunks=chunks).dataset
+    
+    ind2D = gu.nearest_indices_2D(nemo.longitude, nemo.latitude, 
+                                obs.longitude, obs.latitude,
+                                mask = landmask)
+    print("analyse_ssh_hourly: b")
+    nemo_list = []
+    
+    for ff in range(0,len(file_list)):
+        file = file_list[ff]
+        print(file)
+        nemo = coast.NEMO(file, fn_nemo_domain, chunks=chunks).dataset
+        nemo = nemo['ssh']
+        nemo_ext = nemo.isel(x_dim = ind2D[0], y_dim = ind2D[1]).load()
+        nemo_ext = nemo_ext.swap_dims({'dim_0':'port'})
+        nemo_list.append(nemo_ext)
+    
+    print("analyse_ssh_hourly: c")
+    
+    nemo = xr.merge(nemo_list)
+    
+    print('d')
+    
+    return nemo
+
+def read_nemo_landmask_using_top_level(fn_nemo_domain):
+    print("analyse_ssh_hourly: Reading landmask")
+    dom = xr.open_dataset(fn_nemo_domain)
+    landmask = np.array(dom.top_level.values.squeeze() == 0)
+    dom.close()
+    print("analyse_ssh_hourly: Done")
+    return landmask
+
+def read_obs_data(fn_obs):
+    return xr.open_dataset(fn_obs)
+
+def subset_obs_by_lonlat(nemo, obs):
+    print("analyse_ssh_hourly: Subsetting obs data")
+    lonmax = np.nanmax(nemo.longitude)
+    lonmin = np.nanmin(nemo.longitude)
+    latmax = np.nanmax(nemo.latitude)
+    latmin = np.nanmin(nemo.latitude)
+    ind = gu.subset_indices_lonlat_box(obs.longitude, obs.latitude, 
+                                       lonmin, lonmax, latmin, latmax)
+    obs = obs.isel(port=ind[0])
+    print("analyse_ssh_hourly: Done")
+    return obs
+
+def extract_obs_locations(nemo, obs, landmask):
+    print("analyse_ssh_hourly: Extracting nearest model points ")
+    # Extract model locations
+    ind2D = gu.nearest_indices_2D(nemo.longitude, nemo.latitude, 
+                                obs.longitude, obs.latitude,
+                                mask = landmask)
+    print("analyse_ssh_hourly: determined indices, loading data")
+    nemo_extracted = nemo.isel(x_dim = ind2D[0], y_dim = ind2D[1])
+    nemo_extracted = nemo_extracted.swap_dims({'dim_0':'port'})
+    
+    with ProgressBar():
+        nemo_extracted.load()
+    
+    # Check interpolation distances
+    max_dist = 5
+    interp_dist = gu.calculate_haversine_distance(nemo_extracted.longitude, 
+                                                  nemo_extracted.latitude, 
+                                                  obs.longitude.values,
+                                                  obs.latitude.values)
+    keep_ind = interp_dist < max_dist
+    nemo_extracted = nemo_extracted.isel(port=keep_ind)
+    obs = obs.isel(port=keep_ind)
+    print("analyse_ssh_hourly: Done")
+    return nemo_extracted, obs
+
+def align_timings(nemo_extracted, obs):
+    print("analyse_ssh_hourly: Aligning obs and model times")
+    obs = obs.interp(time = nemo_extracted.time_instant.values, method = 'linear')
+    print("analyse_ssh_hourly: Done")
+    return obs
+
+def compare_phase(g1, g2):
+    g1 = np.array(g1)
+    g2 = np.array(g2)
+    r = (g1-g2)%360 - 360
+    r[r<-180] = r[r<-180] + 360
+    r[r>180] = r[r>180] - 360
+    return r
+
 class analyse_ssh_hourly():
     
     def __init__(self, fn_nemo_data, fn_nemo_domain, fn_obs, fn_out,
                          thresholds = np.arange(0,2,0.1),
                          constit_to_save = ['M2', 'S2', 'K1','O1'], 
-                         chunks = {'time_counter':744}):
+                         chunks = {'time_counter':50}):
         
-        nemo = self.read_nemo_ssh(fn_nemo_data, fn_nemo_domain, chunks)
+        nemo = read_nemo_ssh(fn_nemo_data, fn_nemo_domain, chunks)
         
-        landmask = self.read_nemo_landmask_using_top_level(fn_nemo_domain)
+        landmask = read_nemo_landmask_using_top_level(fn_nemo_domain)
         
-        obs = self.read_obs_data(fn_obs)
+        obs = read_obs_data(fn_obs)
         
-        obs = self.subset_obs_by_lonlat(nemo, obs)
+        obs = subset_obs_by_lonlat(nemo, obs)
         
-        nemo_extracted, obs = self.extract_obs_locations(nemo, obs, landmask)
+        nemo_extracted, obs = extract_obs_locations(nemo, obs, landmask)
         #nemo_extracted = self.read_nemo_oneatatime(fn_nemo_data, fn_nemo_domain, 
         #                                           obs, landmask, chunks)
         
-        obs = self.align_timings(nemo_extracted, obs)
+        obs = align_timings(nemo_extracted, obs)
         
         # Define Dimension Sizes
         n_port = obs.dims['port']
@@ -77,81 +186,83 @@ class analyse_ssh_hourly():
                 continue 
             
             # Masked arrays
-            mod_ssh = port_mod.values
-            obs_ssh = port_obs.ssh.values
-            shared_mask = np.logical_or(np.isnan(mod_ssh), np.isnan(obs_ssh))
-            mod_ssh = np.ma.array(mod_ssh, mask = shared_mask)
-            obs_ssh = np.ma.array(obs_ssh, mask = shared_mask)
-            mod_time = port_mod.time.values
-            obs_time = port_obs.time.values
+            ssh_mod = port_mod.values
+            ssh_obs = port_obs.ssh.values
+            shared_mask = np.logical_or(np.isnan(ssh_mod), np.isnan(ssh_obs))
+            ssh_mod[shared_mask] = np.nan
+            ssh_obs[shared_mask] = np.nan
+            time_mod = port_mod.time.values
+            time_obs = port_obs.time.values
             
-            if len(np.where(~obs_ssh.mask)[0]) < 744:
+            if np.sum(~np.isnan(ssh_obs)) < 100:
                 skew_mod.append([])
                 skew_obs.append([])
                 continue
             
             # Harmonic analysis datenums
-            hat  = mdates.date2num(port_mod.time.values)
+            hat  = mdates.date2num(time_mod)
             
             # Do harmonic analysis using UTide
-            uts_obs = ut.solve(hat, obs_ssh, lat=port_obs.latitude.values)
-            uts_mod = ut.solve(hat, mod_ssh, lat=port_mod.latitude.values)
+            uts_obs = ut.solve(hat, ssh_obs, lat=port_obs.latitude.values)
+            uts_mod = ut.solve(hat, ssh_mod, lat=port_mod.latitude.values)
             
             # Reconstruct tidal signal 
-            obs_tide = np.ma.array( ut.reconstruct(hat, uts_obs).h, mask=shared_mask)
-            mod_tide = np.ma.array( ut.reconstruct(hat, uts_mod).h, mask=shared_mask)
+            tide_obs = np.array( ut.reconstruct(hat, uts_obs).h)
+            tide_mod = np.array( ut.reconstruct(hat, uts_mod).h)
+            tide_obs[shared_mask] = np.nan
+            tide_mod[shared_mask] = np.nan
             
             # Identify Peaks in tide and TWL 
             
-            pk_ind_mod_tide,_ = signal.find_peaks(mod_tide, distance = 9)
-            pk_ind_obs_tide,_ = signal.find_peaks(obs_tide, distance = 9)
-            pk_ind_mod_ssh,_  = signal.find_peaks(mod_ssh, distance = 9)
-            pk_ind_obs_ssh,_  = signal.find_peaks(obs_ssh, distance = 9)
+            pk_ind_tide_mod,_ = signal.find_peaks(tide_mod, distance = 9)
+            pk_ind_tide_obs,_ = signal.find_peaks(tide_obs, distance = 9)
+            pk_ind_ssh_mod,_  = signal.find_peaks(ssh_mod, distance = 9)
+            pk_ind_ssh_obs,_  = signal.find_peaks(ssh_obs, distance = 9)
             
-            pk_time_mod_tide = pd.to_datetime( mod_time[pk_ind_mod_tide] )
-            pk_time_obs_tide = pd.to_datetime( obs_time[pk_ind_obs_tide] )
-            pk_time_mod_ssh  = pd.to_datetime( mod_time[pk_ind_mod_ssh] )
-            pk_time_obs_ssh  = pd.to_datetime( obs_time[pk_ind_obs_ssh] )
+            pk_time_tide_mod = pd.to_datetime( time_mod[pk_ind_tide_mod] )
+            pk_time_tide_obs = pd.to_datetime( time_obs[pk_ind_tide_obs] )
+            pk_time_ssh_mod  = pd.to_datetime( time_mod[pk_ind_ssh_mod] )
+            pk_time_ssh_obs  = pd.to_datetime( time_obs[pk_ind_ssh_obs] )
             
-            pk_mod_tide = mod_tide[pk_ind_mod_tide]
-            pk_obs_tide = obs_tide[pk_ind_obs_tide] 
-            pk_mod_ssh  = mod_ssh[pk_ind_mod_ssh]
-            pk_obs_ssh  = obs_ssh[pk_ind_obs_ssh]
+            pk_tide_mod = tide_mod[pk_ind_tide_mod]
+            pk_tide_obs = tide_obs[pk_ind_tide_obs] 
+            pk_ssh_mod  = ssh_mod[pk_ind_ssh_mod]
+            pk_ssh_obs  = ssh_obs[pk_ind_ssh_obs]
             
             # Define Skew Surges
-            n_tide_mod = len(pk_mod_tide)
-            n_tide_obs = len(pk_obs_tide)
+            n_tide_mod = len(pk_tide_mod)
+            n_tide_obs = len(pk_tide_obs)
             
-            pk_mod_ssh_interp = np.zeros(n_tide_mod)
-            pk_obs_ssh_interp = np.zeros(n_tide_obs)
+            pk_ssh_mod_interp = np.zeros(n_tide_mod)
+            pk_ssh_obs_interp = np.zeros(n_tide_obs)
             
             # Model Skew Surge
             for ii in range(0, n_tide_mod):
-                time_diff = np.abs(pk_time_mod_tide[ii] - pk_time_mod_ssh)
+                time_diff = np.abs(pk_time_tide_mod[ii] - pk_time_ssh_mod)
                 search_ind = np.where(time_diff < timedelta(hours=6))
                 if len(search_ind[0]) > 0:
-                    pk_mod_ssh_interp[ii] = np.nanmax(pk_mod_ssh[search_ind[0]])
+                    pk_ssh_mod_interp[ii] = np.nanmax(pk_ssh_mod[search_ind[0]])
                 else:
-                    pk_mod_ssh_interp[ii] = np.nan
+                    pk_ssh_mod_interp[ii] = np.nan
                     
             # Observed Skew Surge
-            pk_obs_ssh_interp = np.zeros(n_tide_obs)
+            pk_ssh_obs_interp = np.zeros(n_tide_obs)
             for ii in range(0, n_tide_obs):
-                time_diff = np.abs(pk_time_obs_tide[ii] - pk_time_obs_ssh)
+                time_diff = np.abs(pk_time_tide_obs[ii] - pk_time_ssh_obs)
                 search_ind = np.where(time_diff < timedelta(hours=6))
                 if len(search_ind[0]) > 0:
-                    pk_obs_ssh_interp[ii] = np.nanmax(pk_obs_ssh[search_ind])
+                    pk_ssh_obs_interp[ii] = np.nanmax(pk_ssh_obs[search_ind])
                 else:
-                    pk_obs_ssh_interp[ii] = np.nan
+                    pk_ssh_obs_interp[ii] = np.nan
                     
-            skew_mod_tmp = pk_mod_ssh_interp - pk_mod_tide
-            skew_obs_tmp = pk_obs_ssh_interp - pk_obs_tide
+            skew_mod_tmp = pk_ssh_mod_interp - pk_tide_mod
+            skew_obs_tmp = pk_ssh_obs_interp - pk_tide_obs
             
             ds_tmp = xr.Dataset(coords = dict(
-                                    time = ('time',pk_time_mod_tide)),
+                                    time = ('time',pk_time_tide_mod)),
                                 data_vars = dict(
                                     ssh = ('time',skew_mod_tmp)))
-            ds_int = ds_tmp.interp(time=pk_time_obs_tide, method='nearest')
+            ds_int = ds_tmp.interp(time=pk_time_tide_obs, method='nearest')
             skew_mod_tmp = ds_int.ssh.values
         
             skew_mod.append(skew_mod_tmp)
@@ -159,9 +270,9 @@ class analyse_ssh_hourly():
             skew_err.append(skew_mod_tmp - skew_obs_tmp)
             
             # TWL: Basic stats
-            std_obs[pp] = np.ma.std(obs_ssh)
-            std_mod[pp] = np.ma.std(mod_ssh)
-            std_err[pp] = np.ma.std(mod_ssh) - np.ma.std(obs_ssh)
+            std_obs[pp] = np.ma.std(ssh_obs)
+            std_mod[pp] = np.ma.std(ssh_mod)
+            std_err[pp] = np.ma.std(ssh_mod) - np.ma.std(ssh_obs)
             
             # TWL: Constituents
             a_dict_obs = dict( zip(uts_obs.name, uts_obs.A) )
@@ -182,8 +293,8 @@ class analyse_ssh_hourly():
             a_obs[a_obs>20] = np.nan
             
             # NTR: Calculate and get peaks
-            ntr_obs = obs_ssh - obs_tide
-            ntr_mod = mod_ssh - mod_tide
+            ntr_obs = ssh_obs - tide_obs
+            ntr_mod = ssh_mod - tide_mod
             
             ntr_obs = signal.savgol_filter(ntr_obs,25,3)
             ntr_mod = signal.savgol_filter(ntr_mod,25,3)
@@ -197,8 +308,8 @@ class analyse_ssh_hourly():
             pk_ind_ntr_obs,_ = signal.find_peaks(ntr_obs, distance = 12)
             pk_ind_ntr_mod,_ = signal.find_peaks(ntr_mod, distance = 12)
             
-            pk_time_ntr_obs = pd.to_datetime( obs_time[pk_ind_ntr_obs] )
-            pk_time_ntr_mod = pd.to_datetime( mod_time[pk_ind_ntr_mod] )
+            pk_time_ntr_obs = pd.to_datetime( time_obs[pk_ind_ntr_obs] )
+            pk_time_ntr_mod = pd.to_datetime( time_mod[pk_ind_ntr_mod] )
             pk_ntr_obs = ntr_obs[pk_ind_ntr_obs]
             pk_ntr_mod = ntr_mod[pk_ind_ntr_mod]
             
@@ -270,14 +381,16 @@ class analyse_ssh_hourly():
                         constituent = ('constituent', constit_to_save),
                         threshold = ('threshold', thresholds)),
                    data_vars = dict(
-                        nemo_ssh = (['port','time'], nemo_extracted.values.T),
-                        obs_ssh  = (['port','time'], obs.ssh.values),
+                        ssh_mod = (['port','time'], nemo_extracted.values.T),
+                        ssh_obs  = (['port','time'], obs.ssh.values),
+                        ntr_mod = (['port', 'time'], ntr_mod_all),
+                        ntr_obs = (['port','time'], ntr_obs_all),
                         amp_mod = (['port','constituent'], a_mod),
                         amp_obs = (['port','constituent'], a_obs),
                         pha_mod = (['port','constituent'], g_mod),
                         pha_obs = (['port','constituent'], g_obs),
                         amp_err = (['port','constituent'], a_mod - a_obs),
-                        pha_err = (['port','constituent'], self.compare_phase(g_mod, g_obs)),
+                        pha_err = (['port','constituent'], compare_phase(g_mod, g_obs)),
                         std_obs = (['port'], std_obs),
                         std_mod = (['port'], std_mod),
                         std_err = (['port'], std_err),
@@ -304,115 +417,4 @@ class analyse_ssh_hourly():
                         ntr_obs_monthly_max  = (['port','time_month'], ntr_monthly_max.ntr_obs.values.T))
                         )
         
-        self.write_stats_to_file(stats, fn_out)
-        
-    def write_stats_to_file(self, stats, fn_out):
-        print("analyse_ssh_hourly: Writing output to file")
-        if os.path.exists(fn_out):
-            os.remove(fn_out)
-        stats.to_netcdf(fn_out)
-        print("analyse_monthly_ssh: Done")
-
-
-    def read_nemo_ssh(self, fn_nemo_data, fn_nemo_domain, chunks):
-        print("analyse_ssh_hourly: Reading NEMO data")
-        nemo = coast.NEMO(fn_nemo_data, fn_nemo_domain, 
-                                  multiple=True, chunks=chunks).dataset
-        print("analyse_ssh_hourly: Done")
-        return nemo['ssh']
-    
-    def read_nemo_oneatatime(self, fn_nemo_data, fn_nemo_domain, obs, landmask, 
-                             chunks):
-        print("analyse_ssh_hourly: a")
-        
-        file_list = glob.glob(fn_nemo_data)
-        
-        file=file_list[0]
-        nemo = coast.NEMO(file, fn_nemo_domain, chunks=chunks).dataset
-        
-        ind2D = gu.nearest_indices_2D(nemo.longitude, nemo.latitude, 
-                                    obs.longitude, obs.latitude,
-                                    mask = landmask)
-        print("analyse_ssh_hourly: b")
-        nemo_list = []
-        
-        for ff in range(0,len(file_list)):
-            file = file_list[ff]
-            print(file)
-            nemo = coast.NEMO(file, fn_nemo_domain, chunks=chunks).dataset
-            nemo = nemo['ssh']
-            nemo_ext = nemo.isel(x_dim = ind2D[0], y_dim = ind2D[1]).load()
-            nemo_ext = nemo_ext.swap_dims({'dim_0':'port'})
-            nemo_list.append(nemo_ext)
-        
-        print("analyse_ssh_hourly: c")
-        
-        nemo = xr.merge(nemo_list)
-        
-        print('d')
-        
-        return nemo
-    
-    def read_nemo_landmask_using_top_level(self, fn_nemo_domain):
-        print("analyse_ssh_hourly: Reading landmask")
-        dom = xr.open_dataset(fn_nemo_domain)
-        landmask = np.array(dom.top_level.values.squeeze() == 0)
-        dom.close()
-        print("analyse_ssh_hourly: Done")
-        return landmask
-    
-    def read_obs_data(self, fn_obs):
-        return xr.open_dataset(fn_obs)
-    
-    def subset_obs_by_lonlat(self, nemo, obs):
-        print("analyse_ssh_hourly: Subsetting obs data")
-        lonmax = np.nanmax(nemo.longitude)
-        lonmin = np.nanmin(nemo.longitude)
-        latmax = np.nanmax(nemo.latitude)
-        latmin = np.nanmin(nemo.latitude)
-        ind = gu.subset_indices_lonlat_box(obs.longitude, obs.latitude, 
-                                           lonmin, lonmax, latmin, latmax)
-        obs = obs.isel(port=ind[0])
-        print("analyse_ssh_hourly: Done")
-        return obs
-    
-    def extract_obs_locations(self, nemo, obs, landmask):
-        print("analyse_ssh_hourly: Extracting nearest model points ")
-        # Extract model locations
-        ind2D = gu.nearest_indices_2D(nemo.longitude, nemo.latitude, 
-                                    obs.longitude, obs.latitude,
-                                    mask = landmask)
-        print("analyse_ssh_hourly: determined indices, loading data")
-        nemo_extracted = nemo.isel(x_dim = ind2D[0], y_dim = ind2D[1])
-        nemo_extracted = nemo_extracted.swap_dims({'dim_0':'port'})
-        
-        print("analyse_ssh_hourly: ata")
-        
-        with ProgressBar():
-            nemo_extracted.load()
-        
-        # Check interpolation distances
-        max_dist = 5
-        interp_dist = gu.calculate_haversine_distance(nemo_extracted.longitude, 
-                                                      nemo_extracted.latitude, 
-                                                      obs.longitude.values,
-                                                      obs.latitude.values)
-        keep_ind = interp_dist < max_dist
-        nemo_extracted = nemo_extracted.isel(port=keep_ind)
-        obs = obs.isel(port=keep_ind)
-        print("analyse_ssh_hourly: Done")
-        return nemo_extracted, obs
-    
-    def align_timings(self, nemo_extracted, obs):
-        print("analyse_ssh_hourly: Aligning obs and model times")
-        obs = obs.interp(time = nemo_extracted.time, method = 'nearest')
-        print("analyse_ssh_hourly: Done")
-        return obs
-    
-    def compare_phase(self, g1, g2):
-        g1 = np.array(g1)
-        g2 = np.array(g2)
-        r = (g1-g2)%360 - 360
-        r[r<-180] = r[r<-180] + 360
-        r[r>180] = r[r>180] - 360
-        return r
+        write_stats_to_file(stats, fn_out)
