@@ -194,7 +194,7 @@ class analyse_ssh_hourly():
             time_mod = port_mod.time_instant.values
             time_obs = port_obs.time.values
             
-            if np.sum(~np.isnan(ssh_obs)) < 100:
+            if np.sum(~np.isnan(ssh_obs)) < 8760:
                 skew_mod.append([])
                 skew_obs.append([])
                 continue
@@ -270,9 +270,8 @@ class analyse_ssh_hourly():
             skew_err.append(skew_mod_tmp - skew_obs_tmp)
             
             # TWL: Basic stats
-            std_obs[pp] = np.ma.std(ssh_obs)
-            std_mod[pp] = np.ma.std(ssh_mod)
-            std_err[pp] = np.ma.std(ssh_mod) - np.ma.std(ssh_obs)
+            std_obs[pp] = np.nanstd(ssh_obs)
+            std_mod[pp] = np.nanstd(ssh_mod)
             
             # TWL: Constituents
             a_dict_obs = dict( zip(uts_obs.name, uts_obs.A) )
@@ -296,11 +295,11 @@ class analyse_ssh_hourly():
             ntr_obs = ssh_obs - tide_obs
             ntr_mod = ssh_mod - tide_mod
             
-            ntr_obs = signal.savgol_filter(ntr_obs,25,3)
-            ntr_mod = signal.savgol_filter(ntr_mod,25,3)
-            
             ntr_obs = np.ma.masked_invalid(ntr_obs)
             ntr_mod = np.ma.masked_invalid(ntr_mod)
+            
+            ntr_obs = signal.savgol_filter(ntr_obs,25,3)
+            ntr_mod = signal.savgol_filter(ntr_mod,25,3)
             
             ntr_obs_all[pp] = ntr_obs
             ntr_mod_all[pp] = ntr_mod
@@ -379,7 +378,9 @@ class analyse_ssh_hourly():
                         latitude = ('port', obs.latitude.values),
                         time = ('time', time_obs),
                         constituent = ('constituent', constit_to_save),
-                        threshold = ('threshold', thresholds)),
+                        threshold = ('threshold', thresholds),
+                        time_month = ('time_month', ntr_monthly_var.time),
+                        clim_month = ('clim_month', ntr_clim_var.month)),
                    data_vars = dict(
                         ssh_mod = (['port','time'], nemo_extracted.ssh.values.T),
                         ssh_obs  = (['port','time'], obs.ssh.values),
@@ -393,7 +394,7 @@ class analyse_ssh_hourly():
                         pha_err = (['port','constituent'], compare_phase(g_mod, g_obs)),
                         std_obs = (['port'], std_obs),
                         std_mod = (['port'], std_mod),
-                        std_err = (['port'], std_err),
+                        std_err = (['port'], std_mod - std_obs),
                         ntr_corr = (['port'], ntr_corr),
                         ntr_mae  = (['port'], ntr_mae),
                         skew_mod = (['port', 'tide_num'], skew_mod_np),
