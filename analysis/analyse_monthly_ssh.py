@@ -1,5 +1,5 @@
 import sys
-sys.path.append('/Users/dbyrne/Desktop/COAsT-master')
+sys.path.append('/work/n01/n01/dbyrne/CO9_AMM15/code/COAsT')
 import coast
 import coast.general_utils as gu
 import xarray as xr
@@ -155,10 +155,3 @@ class analyse_monthly_ssh():
             os.remove(fn_out)
         stats.to_netcdf(fn_out)
         print("analyse_monthly_ssh: Statistics written to file")
-        
-fn_nemo_data = "/Users/dbyrne/Projects/CO9_AMM15/data/nemo/20*"
-fn_nemo_domain = "/Users/dbyrne/Projects/CO9_AMM15/data/nemo/CO7_EXACT_CFG_FILE.nc"
-fn_psmsl_monthly = "/Users/dbyrne/data/psmsl/rlr_monthly.nc"
-fn_out = "/Users/dbyrne/Projects/CO9_AMM15/data/analysis/p0/ssh_monthly_stats.nc"
-
-analyse_monthly_ssh(fn_nemo_data, fn_nemo_domain, fn_psmsl_monthly, fn_out)
