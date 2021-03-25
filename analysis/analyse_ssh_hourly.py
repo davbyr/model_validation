@@ -295,11 +295,11 @@ class analyse_ssh_hourly():
             ntr_obs = ssh_obs - tide_obs
             ntr_mod = ssh_mod - tide_mod
             
-            ntr_obs = np.ma.masked_invalid(ntr_obs)
-            ntr_mod = np.ma.masked_invalid(ntr_mod)
-            
             ntr_obs = signal.savgol_filter(ntr_obs,25,3)
             ntr_mod = signal.savgol_filter(ntr_mod,25,3)
+            
+            ntr_obs = np.ma.masked_invalid(ntr_obs)
+            ntr_mod = np.ma.masked_invalid(ntr_mod)
             
             ntr_obs_all[pp] = ntr_obs
             ntr_mod_all[pp] = ntr_mod
@@ -345,12 +345,12 @@ class analyse_ssh_hourly():
         
         # NTR: Monthly Climatology
         ntr_grouped = ds_ntr.groupby('time.month')
-        ntr_clim_var = ntr_grouped.var()
+        ntr_clim_var = ntr_grouped.std()
         ntr_clim_mean = ntr_grouped.mean()
         
         # NTR: Monthly Means
         ntr_resampled = ds_ntr.resample(time='1M')
-        ntr_monthly_var = ntr_resampled.var()
+        ntr_monthly_var = ntr_resampled.std()
         ntr_monthly_mean = ntr_resampled.mean()
         ntr_monthly_max = ntr_resampled.max()
         
