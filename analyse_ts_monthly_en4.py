@@ -71,10 +71,10 @@ import glob
 from dateutil.relativedelta import *
 import scipy.stats as spst
  
-def write_ds_to_file(ds, fn):
+def write_ds_to_file(ds, fn, **kwargs):
         if os.path.exists(fn):
             os.remove(fn)
-        ds.to_netcdf(fn)
+        ds.to_netcdf(fn, **kwargs)
 
 def read_monthly_profile_en4(fn_en4):
     '''
@@ -616,9 +616,9 @@ class analyse_ts_monthly_en4():
             
             # Create temp monthly file and write to it
             fn_tmp = 'en4_stats_by_profile_{0}{1}.nc'.format(yy,mm.zfill(2))
-            tmp_file_names_sta.append(fn_tmp)
             fn = os.path.join(dn_output, fn_tmp)
-            analysis.to_netcdf(fn, mode='w', unlimited_dims='profile')
+            tmp_file_names_sta.append(fn)
+            write_ds_to_file(analysis, fn, mode='w', unlimited_dims='profile')
             
             with open(fn_log, 'a') as f:
                 f.write('       File Written: ' + fn_tmp + ' \n')
@@ -634,9 +634,9 @@ class analyse_ts_monthly_en4():
             
             # Create temp monthly file and write to it
             fn_tmp = 'en4_extracted_profiles_{0}{1}.nc'.format(yy,mm.zfill(2))
-            tmp_file_names_ext.append(fn_tmp)
             fn = os.path.join(dn_output, fn_tmp)
-            data.to_netcdf(fn, mode='w', unlimited_dims='profile')
+            tmp_file_names_ext.append(fn)
+            write_ds_to_file(data, fn, mode='w', unlimited_dims='profile')
             
             with open(fn_log, 'a') as f:
                 f.write('       File Written: ' + fn_tmp + ' \n')
@@ -664,7 +664,7 @@ class analyse_ts_monthly_en4():
          
         fn_stats_region = 'en4_stats_regional_{0}.nc'.format(run_name)
         fn = os.path.join(dn_output, fn_stats_region)
-        stats_regional.to_netcdf(fn, mode='w')
+        write_ds_to_file(stats_regional, fn, mode='w')
         
         # Concatenate monthly output files into one file
         fn_stats = 'en4_stats_profiles_{0}.nc'.format(run_name)
@@ -680,6 +680,9 @@ class analyse_ts_monthly_en4():
         write_ds_to_file(all_stats, fn)
         for ff in tmp_file_names_ext:
             os.remove(ff)
+
+
+
 
 class regrid_en4_stats():
     def __init__(self, fn_profile_stats, dn_output, run_name, grid_lon, grid_lat, 
