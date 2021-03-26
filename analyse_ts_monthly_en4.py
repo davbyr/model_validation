@@ -150,9 +150,7 @@ class analyse_ts_monthly_en4():
         mod_month = read_monthly_model_nemo(fn_nemo_month, fn_nemo_domain)
         
         # Define a log file to output progress
-        fn_log = os.path.join(dn_output, 'log_profile.txt')
-        with open(fn_log, 'w') as f:
-            f.write(' *Profile analysis starting.* \n')
+        print(' *Profile analysis starting.*')
         
         # Number of levels in EN4 data
         n_obs_levels = 400
@@ -195,8 +193,7 @@ class analyse_ts_monthly_en4():
         # ANALYSIS: Load in month by month and interpolate profile by profile
         for month_ii in range(0,n_months):
             
-            with open(fn_log, 'a') as f:
-                f.write('Loading month of data: ' + str(current_month) + '\n')
+            print('Loading month of data: ' + str(current_month))
             
             # Make filenames for current month and read NEMO/EN4
             # If this files (e.g. file does not exist), skip to next month
@@ -209,8 +206,7 @@ class analyse_ts_monthly_en4():
             except:
                 current_month = current_month + relativedelta(months=+1)
             
-                with open(fn_log, 'a') as f:
-                    f.write('       !!!Problem with read: Not analyzed ' + fn_tmp + ' \n')
+                print('       !!!Problem with read: Not analyzed ' + fn_tmp)
                 continue
             
             # ----------------------------------------------------
@@ -341,8 +337,7 @@ class analyse_ts_monthly_en4():
                 ind_prof_use.append(prof)
                 profiles_analysed+=1
                 
-            with open(fn_log, 'a') as f:
-                f.write('       Interpolated Profiles. \n')
+                print('       Interpolated Profiles.')
             
             # Find the union of masks for each variable
             mask_tem = np.logical_or(np.isnan(mod_tem), np.isnan(obs_tem))
@@ -411,8 +406,7 @@ class analyse_ts_monthly_en4():
             analysis['mae_sal'] = (['profile'], 
                                    np.nanmean(analysis.abs_error_tem, axis=1))
             
-            with open(fn_log, 'a') as f:
-                f.write('       Basic errors done. \n')
+            print('       Basic errors done. ')
             
             # ----------------------------------------------------
             # Analysis 4) Surface stats
@@ -472,8 +466,7 @@ class analyse_ts_monthly_en4():
             analysis['bott_error_tem'] = (['profile'], mod_bott_tem - obs_bott_tem)
             analysis['bott_error_sal'] = (['profile'], mod_bott_sal - obs_bott_sal)
             
-            with open(fn_log, 'a') as f:
-                f.write('       Surface and bottom errors done. \n')
+            print('       Surface and bottom errors done. ')
             
             # ----------------------------------------------------
             # Analysis 6) Mixed Layer Depth - needs GSW EOS
@@ -564,8 +557,7 @@ class analyse_ts_monthly_en4():
             tmp_file_names_sta.append(fn)
             write_ds_to_file(analysis, fn, mode='w', unlimited_dims='profile')
             
-            with open(fn_log, 'a') as f:
-                f.write('       File Written: ' + fn_tmp + ' \n')
+            print('       File Written: ' + fn_tmp)
                 
                 
             # ----------------------------------------------------
@@ -582,8 +574,7 @@ class analyse_ts_monthly_en4():
             tmp_file_names_ext.append(fn)
             write_ds_to_file(data, fn, mode='w', unlimited_dims='profile')
             
-            with open(fn_log, 'a') as f:
-                f.write('       File Written: ' + fn_tmp + ' \n')
+            print('       File Written: ' + fn_tmp)
             
             # Onto next month
             current_month = current_month + relativedelta(months=+1)
