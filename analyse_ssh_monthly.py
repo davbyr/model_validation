@@ -9,7 +9,7 @@ import pandas as pd
 from dateutil.relativedelta import relativedelta
 import os
 
-class analyse_monthly_ssh():
+class analyse_ssh_monthly():
     
     def __init__(self, fn_nemo_data, fn_nemo_domain, fn_psmsl_monthly, fn_out,
                  nemo_chunks = {}):

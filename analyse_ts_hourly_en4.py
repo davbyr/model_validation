@@ -204,6 +204,7 @@ class analyse_ts_hourly_en4():
         ds_out = xr.merge((ds, ds_mean))
         
         # Write to file
+        ds_out.to_netcdf(fn_out)
         
         return nemo, en4
     

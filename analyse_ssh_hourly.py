@@ -173,6 +173,9 @@ class analyse_ssh_hourly():
         thresh_int_ntr_obs = np.zeros((n_port, n_thresholds))
         thresh_freq_skew_mod = np.zeros((n_port, n_thresholds))
         thresh_freq_skew_obs = np.zeros((n_port, n_thresholds))
+        thresh_ntr_corr = np.zeros((n_port, n_thresholds))
+        thresh_ntr_me = np.zeros((n_port, n_thresholds))
+        thresh_ntr_mae = np.zeros((n_port, n_thresholds))
         
         ntr_mod_all = np.zeros((n_port, n_time))*np.nan
         ntr_obs_all = np.zeros((n_port, n_time))*np.nan
@@ -297,8 +300,8 @@ class analyse_ssh_hourly():
             ntr_obs = ssh_obs - tide_obs
             ntr_mod = ssh_mod - tide_mod
             
-            ntr_obs = signal.savgol_filter(ntr_obs,25,3)
-            ntr_mod = signal.savgol_filter(ntr_mod,25,3)
+            #ntr_obs = signal.savgol_filter(ntr_obs,25,3)
+            #ntr_mod = signal.savgol_filter(ntr_mod,25,3)
             
             ntr_obs = np.ma.masked_invalid(ntr_obs)
             ntr_mod = np.ma.masked_invalid(ntr_mod)
@@ -330,13 +333,18 @@ class analyse_ssh_hourly():
                 thresh_int_ntr_mod[pp, nn] = np.sum( ntr_mod > threshn)
                 thresh_int_ntr_obs[pp, nn] = np.sum( ntr_obs > threshn)
                 
-                # NTR: Extreme Value Analysis
+                # NTR: MAE and correlations above thresholds
+                ntr_over_ind = np.where( ntr_obs > threshn )
+                ntr_obs_over = ntr_obs[ntr_over_ind]
+                ntr_mod_over = ntr_mod[ntr_over_ind]
+                thresh_ntr_corr[pp,nn] = np.ma.corrcoef(ntr_obs_over, ntr_mod_over)  
+                thresh_ntr_mae[pp,nn] = np.ma.mean( np.abs( ntr_mod_over - ntr_obs_over ))
+                thresh_ntr_me[pp,nn] = np.ma.mean( ntr_mod_over - ntr_obs_over )
                 
                 # Skew Surge Threshold Frequency
                 thresh_freq_skew_mod[pp, nn] = np.sum( skew_mod_tmp > threshn)
                 thresh_freq_skew_obs[pp, nn] = np.sum( skew_obs_tmp > threshn)
                 
-                # Skew surge Extreme Value Analysis
                 
         # NTR: Monthly Variability
         ds_ntr = xr.Dataset(coords = dict(

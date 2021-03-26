@@ -114,67 +114,8 @@ def sort_file_names(file_list):
     file_to_read = file_to_read[sort_ind]
     return file_to_read
 
-def define_regional_masks(bath):
-    '''
-    Returns a list of regional masks
-    '''
-    n_r, n_c = bath.shape
-    whole_domain = region_def_whole_domain(n_r, n_c)
-    north_sea = region_def_north_sea(bath)
-    outer_shelf = region_def_outer_shelf(bath)
-    norwegian_trench = region_def_norwegian_trench(bath)
-    english_channel = region_def_english_channel(bath)
-    shallow = region_def_shallow(bath)
-    deep = region_def_deep(bath)
-    regional_masks = [whole_domain, shallow, deep, 
-                      north_sea, outer_shelf, norwegian_trench, english_channel]
-    return regional_masks
-
 def region_def_whole_domain(n_r, n_c):
     return np.ones((n_r,n_c))
-
-def region_def_shallow(bath):
-    return bath<=200
-
-def region_def_deep(bath):
-    return bath>200
-
-def region_def_north_sea(bath):
-    return ( (bath.latitude<60.5) & 
-           (bath.latitude>54.09) &
-           (bath<200) &
-           (bath.longitude < 9) &
-           (bath.latitude - 0.83*bath.longitude < (58.641 + 0.83*3.316) ) & 
-           (bath.latitude +0.606*bath.longitude > (53.808 -0.606*0.227) ) &
-           ~( (bath.longitude > 4.126) & (bath.latitude>58.59)  ) &
-           ~( (bath.longitude > 5) & (bath.latitude>58.121)  ) &
-           ~( (bath.longitude >6.3) & (bath.latitude>57.859)  ) & 
-           ~( (bath.longitude >7.5) & (bath.latitude<55.5)  ))
-
-def region_def_outer_shelf(bath):
-    return ( ( (bath.latitude + 0.704*bath.longitude < (48.66 - 0.704*4.532) ) 
-               | (bath.latitude - 0.83*bath.longitude > (58.641 + 0.83*3.316) )  
-               | ( (bath.latitude > 60.5) & (bath.longitude > -1.135) & (bath.longitude < 3.171)) ) & 
-             ~( (bath.longitude < -3.758) & (bath.latitude > 60.448) ) &
-             ~( (bath.longitude < -11.468) & (bath.latitude > 55.278) ) &
-             (bath<200) &
-             (bath.latitude > 48) )
-
-def region_def_norwegian_trench(bath):
-    return ( (bath >200) &
-             (bath.longitude > 1.12) & 
-             (bath.longitude < 10.65) &
-             (bath.latitude < 61.83 ) )
-
-def region_def_english_channel(bath):
-    return ( (~region_def_outer_shelf(bath)) &
-            (~region_def_north_sea(bath)) &
-            (bath.latitude < 55) &
-            (bath.latitude > 48) &
-            (bath.longitude > -4.8) &
-            ~( (bath.latitude > 50.5) & (bath.longitude <-2) ) &
-            (bath < 200) & 
-            (bath > 0))
 
 def make_nemo_filename(dn, date, suffix):
     month = str(date.month).zfill(2)
@@ -195,8 +136,9 @@ class analyse_ts_monthly_en4():
                  start_month, end_month, run_name,
                  nemo_file_suffix = '01_monthly_grid_T',
                  en4_file_prefix = 'EN.4.2.1.f.profiles.g10.',
+                 regional_masks=[],
                  surface_def = 5, bottom_def = 10, mld_ref_depth = 5,
-                 mld_threshold = 0.02):
+                 mld_threshold = 0.02, dist_crit=5):
 
         # Define a counter which keeps track of the current month
         current_month = start_month
@@ -216,7 +158,10 @@ class analyse_ts_monthly_en4():
         n_obs_levels = 400
         
         # Define regional masks for regional averaging / profiles
-        regional_masks = define_regional_masks(mod_month.bathymetry) 
+        n_r = mod_month.dims['y_dim']
+        n_c = mod_month.dims['x_dim']
+        print(n_r)
+        regional_masks.append(np.ones((n_r, n_c)))
         n_regions = len(regional_masks) # Number of regions
         
         # Define seasons for seasonal averaging/collation
@@ -327,7 +272,6 @@ class analyse_ts_monthly_en4():
                 
                 # Check that model point is within threshold distance of obs
                 # If not, skip vertical interpolation -> keep profile as nans
-                dist_crit = 10 # Interpolation distance at which to discard
                 interp_dist = coastgu.calculate_haversine_distance(
                                                      obs_profile.longitude, 
                                                      obs_profile.latitude, 
