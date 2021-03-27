@@ -1,5 +1,5 @@
 import sys
-sys.path.append('/work/n01/n01/dbyrne/CO9_AMM15/code/COAsT')
+sys.path.append('/home/users/dbyrne/code/COAsT')
 import coast
 import coast.general_utils as gu
 import xarray as xr

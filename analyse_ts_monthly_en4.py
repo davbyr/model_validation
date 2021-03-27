@@ -55,7 +55,7 @@ depth-binned errors.
 """
 # UNCOMMENT IF USING A DEVELOPMENT VERSION OF COAST
 import sys
-sys.path.append('/Users/dbyrne/code/COAsT/')
+sys.path.append('/home/users/dbyrne/code/COAsT/')
 
 import coast
 import coast.general_utils as coastgu
@@ -84,7 +84,7 @@ def read_monthly_profile_en4(fn_en4):
     en4.read_EN4(fn_en4, chunks={})
     en4.dataset = en4.dataset.rename({'practical_salinity':'salinity'})
     
-    return en4.dataset[['temperature','salinity','depth']]
+    return en4.dataset[['potential_temperature','salinity','depth']]
 
 def read_monthly_model_nemo(fn_nemo_dat, fn_nemo_domain):
     '''
@@ -206,7 +206,7 @@ class analyse_ts_monthly_en4():
             except:
                 current_month = current_month + relativedelta(months=+1)
             
-                print('       !!!Problem with read: Not analyzed ' + fn_tmp)
+                print('       !!!Problem with read: Not analyzed ')
                 continue
             
             # ----------------------------------------------------
