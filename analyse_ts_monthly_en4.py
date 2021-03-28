@@ -82,9 +82,9 @@ def read_monthly_profile_en4(fn_en4):
     
     en4 = coast.PROFILE()
     en4.read_EN4(fn_en4, chunks={})
-    en4.dataset = en4.dataset.rename({'practical_salinity':'salinity'})
-    
-    return en4.dataset[['potential_temperature','salinity','depth']]
+    ds = en4.dataset[['potential_temperature','practical_salinity','depth']]
+    ds = ds.rename({'practical_salinity':'salinity', 'potential_temperature':'temperature'})
+    return ds
 
 def read_monthly_model_nemo(fn_nemo_dat, fn_nemo_domain):
     '''
@@ -200,8 +200,12 @@ class analyse_ts_monthly_en4():
             try:
                 fn_nemo_month = make_nemo_filename(dn_nemo_data, current_month, nemo_file_suffix)
                 fn_en4_month = make_en4_filename(dn_en4, current_month, en4_file_prefix)
-                
+                 
+                print(fn_nemo_month)
+                print(fn_en4_month)
+
                 mod_month = read_monthly_model_nemo(fn_nemo_month, fn_nemo_domain)
+                print('hi')
                 obs_month = read_monthly_profile_en4(fn_en4_month)
             except:
                 current_month = current_month + relativedelta(months=+1)
@@ -221,6 +225,7 @@ class analyse_ts_monthly_en4():
                                                                 latmin, latmax)[0]
             obs_month = obs_month.isel(profile=ind)
             obs_month = obs_month.load()
+            print(obs_month)
             
             # ----------------------------------------------------
             # Init 4) Get model indices (space and time) corresponding to observations
@@ -252,7 +257,7 @@ class analyse_ts_monthly_en4():
             # Loop over profiles, interpolate model to obs depths and store in
             # monthly arrays
             ind_prof_use = []
-            fail_reason = np.zeros(n_prof)*np.nan # Debugging variable
+            fail_reason = np.zeros(n_prof) # Debugging variable
             for prof in range(0,n_prof):
                 
                 # Select profile
@@ -263,7 +268,7 @@ class analyse_ts_monthly_en4():
                 # vertical interpolation -> keep profile as nans in monthly array
                 if all(np.isnan(mod_profile.temperature)):
                     profiles_analysed += 1
-                    fail_reason[prof] = 0
+                    fail_reason[prof] = 1
                     continue
                 
                 # Check that model point is within threshold distance of obs
@@ -275,7 +280,7 @@ class analyse_ts_monthly_en4():
                                                      mod_profile.latitude)
                 if interp_dist > dist_crit:
                     profiles_analysed+=1
-                    fail_reason[prof] = 1
+                    fail_reason[prof] = 2
                     continue
                 
                 # ----------------------------------------------------
@@ -294,7 +299,7 @@ class analyse_ts_monthly_en4():
                     mod_profile_int = mod_profile.interp(depth_0 = obs_profile.depth)
                 except:
                     profiles_analysed+=1
-                    fail_reason[prof] = 2
+                    fail_reason[prof] = 3
                     continue
                 
                 # ----------------------------------------------------
@@ -337,8 +342,7 @@ class analyse_ts_monthly_en4():
                 ind_prof_use.append(prof)
                 profiles_analysed+=1
                 
-                print('       Interpolated Profiles.')
-            
+            print('       Interpolated Profiles.')
             # Find the union of masks for each variable
             mask_tem = np.logical_or(np.isnan(mod_tem), np.isnan(obs_tem))
             mask_sal = np.logical_or(np.isnan(mod_sal), np.isnan(obs_sal))
@@ -413,13 +417,13 @@ class analyse_ts_monthly_en4():
             # Get indices corresponding to surface depth
             # Get averages over surface depths
             analysis['surface_definition'] = surface_def
-            surface_ind = data.obs_z <= surface_def
+            surface_ind = data.obs_z.values <= surface_def
             
             mod_sal_tmp = np.array(data.mod_sal)
             mod_tem_tmp = np.array(data.mod_tem)
             obs_sal_tmp = np.array(data.obs_sal)
             obs_tem_tmp = np.array(data.obs_tem)
-            
+
             mod_sal_tmp[~surface_ind] = np.nan
             mod_tem_tmp[~surface_ind] = np.nan
             obs_sal_tmp[~surface_ind] = np.nan
@@ -431,6 +435,9 @@ class analyse_ts_monthly_en4():
             obs_surf_tem = np.nanmean(obs_tem_tmp, axis=1)
             obs_surf_sal = np.nanmean(obs_sal_tmp, axis=1)
             
+            print(mod_surf_tem)
+            print(obs_surf_tem)
+ 
             # Assign to output arrays
             surf_error_tem =  mod_surf_tem - obs_surf_tem
             surf_error_sal =  mod_surf_sal - obs_surf_sal
@@ -552,7 +559,7 @@ class analyse_ts_monthly_en4():
             analysis['region_bool'] = (['region','profile'], save_mask_ind)
             
             # Create temp monthly file and write to it
-            fn_tmp = 'en4_stats_by_profile_{0}{1}.nc'.format(yy,mm.zfill(2))
+            fn_tmp = 'en4_stats_by_profile_{0}{1}_{2}.nc'.format(yy,mm.zfill(2),run_name)
             fn = os.path.join(dn_output, fn_tmp)
             tmp_file_names_sta.append(fn)
             write_ds_to_file(analysis, fn, mode='w', unlimited_dims='profile')
@@ -569,7 +576,7 @@ class analyse_ts_monthly_en4():
             data['region_bool'] = (['region','profile'], save_mask_ind)
             
             # Create temp monthly file and write to it
-            fn_tmp = 'en4_extracted_profiles_{0}{1}.nc'.format(yy,mm.zfill(2))
+            fn_tmp = 'en4_extracted_profiles_{0}{1}_{2}.nc'.format(yy,mm.zfill(2), run_name)
             fn = os.path.join(dn_output, fn_tmp)
             tmp_file_names_ext.append(fn)
             write_ds_to_file(data, fn, mode='w', unlimited_dims='profile')
@@ -604,15 +611,15 @@ class analyse_ts_monthly_en4():
         # Concatenate monthly output files into one file
         fn_stats = 'en4_stats_profiles_{0}.nc'.format(run_name)
         fn = os.path.join(dn_output, fn_stats)
-        all_stats = xr.open_mfdataset(tmp_file_names_sta, concat_dim='profile', chunks={'profile':10000})
+        all_stats = xr.open_mfdataset(tmp_file_names_sta, combine='by_coords', chunks={'profile':10000})
         write_ds_to_file(all_stats, fn)
         for ff in tmp_file_names_sta:
             os.remove(ff)
         
         fn_ext = 'en4_extracted_profiles_{0}.nc'.format(run_name)
         fn = os.path.join(dn_output, fn_ext)
-        all_extracted = xr.open_mfdataset(tmp_file_names_ext, chunks={'profile':10000})
-        write_ds_to_file(all_stats, fn)
+        all_extracted = xr.open_mfdataset(tmp_file_names_ext,  combine='by_coords', chunks={'profile':10000})
+        write_ds_to_file(all_extracted, fn)
         for ff in tmp_file_names_ext:
             os.remove(ff)
 

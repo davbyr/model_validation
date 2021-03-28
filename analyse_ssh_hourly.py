@@ -1,5 +1,5 @@
 import sys
-sys.path.append('/Users/dbyrne/code/COAsT')
+sys.path.append('/home/users/dbyrne/code/COAsT')
 import coast
 import coast.general_utils as gu
 import coast.plot_util as pu

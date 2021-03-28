@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 import sys
-sys.path.append('/Users/dbyrne/code/COAsT')
+sys.path.append('/home/users/dbyrne/code/COAsT')
 import coast
 import coast.general_utils as gu
 import coast.crps_util as cu
@@ -12,9 +12,9 @@ import coast.crps_util as cu
 class analyse_ts_hourly_en4():
     
     def __init__(fn_nemo_data, fn_nemo_domain, fn_en4, fn_out, surface_def=5, 
-                 regional_masks=None):
+                 regional_masks=None, nemo_chunks={'time_counter':50}):
         
-        nemo = coast.NEMO(fn_nemo_data, fn_nemo_domain, multiple=True, chunks={'time_counter':50})
+        nemo = coast.NEMO(fn_nemo_data, fn_nemo_domain, multiple=True, chunks=nemo_chunks)
         nemo_mask = nemo.dataset.bottom_level == 0
         nemo.dataset = nemo.dataset.rename({'t_dim':'time'})
         
