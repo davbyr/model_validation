@@ -2,12 +2,14 @@ import sys
 sys.path.append('/home/users/dbyrne/code/COAsT')
 import coast
 import coast.general_utils as gu
+import coast.plot_util as pu
 import xarray as xr
 import numpy as np
 from datetime import datetime
 import pandas as pd
 from dateutil.relativedelta import relativedelta
 import os
+import matplotlib.pyplot as plt
 
 class analyse_ssh_monthly():
     
@@ -155,3 +157,134 @@ class analyse_ssh_monthly():
             os.remove(fn_out)
         stats.to_netcdf(fn_out)
         print("analyse_monthly_ssh: Statistics written to file")
+        
+class plot_monthly_ssh_stats_single_cfg():
+    
+    def __init__(self, fn_monthly_ssh_stats, dn_out, run_name, file_type='.png'):
+    
+        stats = xr.open_dataset(fn_monthly_ssh_stats)
+        
+        lonmax = np.max(stats.longitude)
+        lonmin = np.min(stats.longitude)
+        latmax = np.max(stats.latitude)
+        latmin = np.min(stats.latitude)
+        lonbounds = [lonmin-4, lonmax+4]
+        latbounds = [latmin-4, latmax+4]
+        
+        # Plot correlations
+        f,a = pu.create_geo_axes(lonbounds, latbounds)
+        sca = a.scatter(stats.longitude, stats.latitude, c=stats.corr, 
+                        vmin=.75, vmax=1,
+                  edgecolors='k', linewidths=.5, zorder=100)
+        f.colorbar(sca)
+        a.set_title('SSH correlations \n Monthly mean PSMSL tide gauge vs {0} \n Mean Corr = {1}'.format(run_name, np.nanmean(stats.corr)), fontsize=9)
+        fn = "ssh_monthly_correlations_{0}{1}".format(run_name, file_type)
+        f.savefig(os.path.join(dn_out, fn))
+        plt.close('all')
+        
+        # Plot std_err
+        f,a = pu.create_geo_axes(lonbounds, latbounds)
+        sca = a.scatter(stats.longitude, stats.latitude, c=stats.std_err, 
+                        vmin=-.075, vmax=.075,
+                  edgecolors='k', linewidths=.5, zorder=100, cmap='seismic')
+        f.colorbar(sca)
+        a.set_title('Standard Deviation Difference (m) \n Monthly mean {0} - PSMSL Tide Gauge \n Mean err = {1}'.format(run_name, np.nanmean(stats.std_err)), fontsize=9)
+        fn = "ssh_monthly_stderr_{0}{1}".format(run_name, file_type)
+        f.savefig(os.path.join(dn_out, fn))
+        plt.close('all')
+        
+        # Plot me
+        f,a = pu.create_geo_axes(lonbounds, latbounds)
+        sca = a.scatter(stats.longitude, stats.latitude, c=stats.me, 
+                        vmin=-.05, vmax=.05,
+                  edgecolors='k', linewidths=.5, zorder=100, cmap='seismic')
+        f.colorbar(sca)
+        a.set_title('Mean Error (m) \n Monthly mean {0} - PSMSL Tide Gauge \n Mean ME = {1}'.format(run_name, np.nanmean(stats.me)), fontsize=9)
+        fn = "ssh_monthly_me_{0}{1}".format(run_name, file_type)
+        f.savefig(os.path.join(dn_out, fn))
+        plt.close('all')
+        
+        # Plot mae
+        f,a = pu.create_geo_axes(lonbounds, latbounds)
+        sca = a.scatter(stats.longitude, stats.latitude, c=stats.mae, 
+                        vmin=0, vmax=.05,
+                  edgecolors='k', linewidths=.5, zorder=100)
+        f.colorbar(sca)
+        a.set_title('Mean Absolute Error (m) \n Monthly mean {0} - PSMSL Tide Gauge \n Mean MAE = {1}'.format(run_name, np.nanmean(stats.mae)), fontsize=9)
+        fn = "ssh_monthly_mae_{0}{1}".format(run_name, file_type)
+        f.savefig(os.path.join(dn_out, fn))
+        plt.close('all')
+        
+        # Plot st.dev comparisons
+        f,a = pu.scatter_with_fit(stats.std_mod, stats.std_obs)
+        a.set_title('Monthly SSH standard deviation comparison (m) \n {0} vs {1}'.format(run_name,'PSMSL'), fontsize=9)
+        a.set_xlabel("{0} SSH st. dev (m)".format(run_name))
+        a.set_ylabel("PSMSL SSH st. dev (m)")
+        fn = "ssh_monthly_stdev_scatter_{0}{1}".format(run_name, file_type)
+        f.savefig(os.path.join(dn_out, fn))
+        plt.close('all')
+        
+class plot_monthly_ssh_stats_multi_cfg():
+    
+    def __init__(self, fn_monthly_ssh_stats, dn_out, file_type, run_name):
+    
+        stats = [xr.open_dataset(fn) for fn in fn_monthly_ssh_stats]
+        
+        # Correlations
+        
+        # Std_err
+        
+        # MAE
+        
+        # ME
+        
+class plot_monthly_ssh_stats_comparison():
+    
+    def __init__(self, fn_monthly_ssh_stats0, fn_monthly_ssh_stats1, dn_out, 
+                       run_names, file_type='.png'):
+    
+        stats0 = xr.open_dataset(fn_monthly_ssh_stats0)
+        stats1 = xr.open_dataset(fn_monthly_ssh_stats1)
+        
+        lonmax = np.max(stats0.longitude)
+        lonmin = np.min(stats0.longitude)
+        latmax = np.max(stats0.latitude)
+        latmin = np.min(stats0.latitude)
+        lonbounds = [lonmin-4, lonmax+4]
+        latbounds = [latmin-4, latmax+4]
+        
+        # Plot correlations
+        f,a = pu.create_geo_axes(lonbounds, latbounds)
+        sca = a.scatter(stats0.longitude, stats0.latitude, 
+                        c=stats0.corr - stats1.corr, 
+                        vmin=-.03, vmax=.03,
+                  edgecolors='k', linewidths=.5, zorder=100, cmap='PiYG')
+        f.colorbar(sca)
+        a.set_title("SSH correlation difference  {1} - {0} (m)\n Correlations between monthly mean model SSH and PSMSL".format(run_names[1], run_names[0]), fontsize=9)
+        fn = "ssh_diff_corr_{0}_{1}{2}".format(run_names[0], run_names[1], file_type)
+        f.savefig(os.path.join(dn_out, fn))
+        plt.close('all')
+        
+        # Plot std_err
+        f,a = pu.create_geo_axes(lonbounds, latbounds)
+        sca = a.scatter(stats0.longitude, stats0.latitude, 
+                        c=np.abs(stats1.std_err)-np.abs(stats0.std_err), 
+                        vmin=-.01, vmax=.01,
+                  edgecolors='k', linewidths=.5, zorder=100, cmap='PiYG')
+        f.colorbar(sca)
+        a.set_title('Absolute St. Dev Error Difference {0} - {1} (m) \n Error between monthly mean model SSH and PSMSL'.format(run_names[1], run_names[0]), fontsize=9)
+        fn = "ssh_diff_stderr_{0}_{1}{2}".format(run_names[0], run_names[1], file_type)
+        f.savefig(os.path.join(dn_out, fn))
+        plt.close('all')
+        
+        # Plot mae
+        f,a = pu.create_geo_axes(lonbounds, latbounds)
+        sca = a.scatter(stats0.longitude, stats0.latitude, 
+                        c=stats1.mae-stats0.mae, 
+                        vmin=-.01, vmax=.01,
+                  edgecolors='k', linewidths=.5, zorder=100, cmap='PiYG')
+        f.colorbar(sca)
+        a.set_title('MAE Difference {0} - {1} (m) \n Error between monthly mean model SSH and PSMSL'.format(run_names[1], run_names[0]), fontsize=9)
+        fn = "ssh_diff_mae_{0}_{1}{2}".format(run_names[0], run_names[1], file_type)
+        f.savefig(os.path.join(dn_out, fn))
+        plt.close('all')

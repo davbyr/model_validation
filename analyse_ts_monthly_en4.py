@@ -59,6 +59,7 @@ sys.path.append('/home/users/dbyrne/code/COAsT/')
 
 import coast
 import coast.general_utils as coastgu
+import coast.plot_util as pu
 import numpy as np
 import datetime as datetime
 import pandas as pd
@@ -70,6 +71,8 @@ import os.path
 import glob
 from dateutil.relativedelta import *
 import scipy.stats as spst
+import xarray.ufuncs as uf
+import matplotlib.pyplot as plt
  
 def write_ds_to_file(ds, fn, **kwargs):
         if os.path.exists(fn):
@@ -623,24 +626,42 @@ class analyse_ts_monthly_en4():
         for ff in tmp_file_names_ext:
             os.remove(ff)
 
+class regional_analysis():
+    def __init__(self, fn_extracted, fn_stats, fn_nemo_data, fn_nemo_domain, 
+                 fn_out, run_name, regional_masks, region_names):
+        
+        n_regions = len(regional_masks)
+        
+        ext = xr.open_dataset(fn_extracted, chunks={'profile':10000})
+        nemo = coast.NEMO(fn_nemo_data, fn_nemo_domain).dataset
+        mask = nemo.bottom_level == 0
+        
+        ind2D = coastgu.nearest_indices_2D(nemo.longitude.values, nemo.latitude.values,
+                                           ext.longitude.values, ext.latitude.values)
+        
+        is_in_region = [mm[ind2D[1], ind2D[0]] for mm in regional_masks]
+        
+        season_names = ['whole_year','DJF','MAM','JJA','SON']
+        month_season_dict = {1:1, 2:1, 3:2, 4:2, 5:2, 6:3,
+                             7:3, 8:3, 9:4, 10:4, 11:4, 12:1}
+        pd_time = pd.to_datetime(ext.time.values)
+        pd_month = pd_time.month
+        pd_season = np.array([month_season_dict[mm] for mm in pd_month])
+        
+        reg_list = [ext.isel(profile=np.where(rii)[0]) for rii in is_in_region]
+        
+        
+        
 
-
-
-class regrid_en4_stats():
-    def __init__(self, fn_profile_stats, dn_output, run_name, grid_lon, grid_lat, 
+class en4_stats_radius_means():
+    def __init__(self, fn_profile_stats, fn_out, grid_lon, grid_lat, 
                  radius=25):
-                
-        fn_profile_stats = "/Users/dbyrne/Projects/CO9_AMM15/data/analysis/co7/en4_stats_by_profile*" 
-        dn_output = "/Users/dbyrne/Projects/CO9_AMM15/data/analysis/co7"
         
         stats_profile = xr.open_mfdataset(fn_profile_stats, chunks={'profile':10000})
         seasons = ['Annual','DJF','MAM','JJA','SON']
         n_seasons = len(seasons)
         
-        #lon1 = np.arange(-20, 12, 0.25)
-        #lat1 = np.arange(44, 64, 0.25)
-        
-        lon2, lat2 = np.meshgrid(lon1, lat1)
+        lon2, lat2 = np.meshgrid(grid_lon, grid_lat)
         
         lon = lon2.flatten()
         lat = lat2.flatten()
@@ -661,23 +682,29 @@ class regrid_en4_stats():
             tmp = tmp[['surf_error_tem', 'surf_error_sal','bott_error_tem','bott_error_sal']]
             tmp.load()
             
-            for ii in range(0,len(lon)): 
-                ind = gu.subset_indices_by_distance(tmp.longitude, tmp.latitude, 
-                                                    lon[ii], lat[ii], radius=radius)
-                
-                tem = tmp.surf_error_tem.isel(profile=ind).values
-                sal = tmp.surf_error_sal.isel(profile=ind).values
-                surf_error_tem[season,ii] = np.nanmean(tem)
-                surf_error_sal[season,ii] = np.nanmean(sal)
-                surf_tem_N[season,ii] = surf_tem_N[season,ii] + np.sum( ~np.isnan(tem) )
-                surf_sal_N[season,ii] = surf_sal_N[season,ii] + np.sum( ~np.isnan(sal) )
-                
-                tem = tmp.bott_error_tem.isel(profile=ind).values
-                sal = tmp.bott_error_sal.isel(profile=ind).values
-                bott_error_tem[season,ii] = np.nanmean(tem)
-                bott_error_sal[season,ii] = np.nanmean(sal)
-                bott_tem_N[season,ii] = bott_tem_N[season,ii] + np.sum( ~np.isnan(tem) )
-                bott_sal_N[season,ii] = bott_sal_N[season,ii] + np.sum( ~np.isnan(sal) )
+            # Remove outliers
+            std = tmp.std(skipna = True)
+            tmp['surf_error_tem'] = xr.where(uf.fabs(tmp['surf_error_tem']) > 5*std.surf_error_tem, np.nan, tmp['surf_error_tem'] )
+            tmp['bott_error_tem'] = xr.where(uf.fabs(tmp['bott_error_tem']) > 5*std.surf_error_tem, np.nan, tmp['surf_error_tem'] )
+            tmp['surf_error_sal'] = xr.where(uf.fabs(tmp['surf_error_sal']) > 5*std.surf_error_tem, np.nan, tmp['surf_error_sal'] )
+            tmp['bott_error_sal'] = xr.where(uf.fabs(tmp['bott_error_sal']) > 5*std.surf_error_tem, np.nan, tmp['bott_error_sal'] )
+            
+            ind = coastgu.subset_indices_by_distance_BT(tmp.longitude, tmp.latitude, 
+                                                lon, lat, radius=radius)
+            
+            tem = [tmp.surf_error_tem.isel(profile=ii).values for ii in ind]
+            sal = [tmp.surf_error_sal.isel(profile=ii).values for ii in ind]
+            surf_error_tem[season] = [np.nanmean(temii) for temii in tem]
+            surf_error_sal[season] = [np.nanmean(salii) for salii in sal]
+            surf_tem_N[season] = [np.sum( ~np.isnan(temii) ) for temii in tem]
+            surf_sal_N[season] = [np.sum( ~np.isnan(salii) ) for salii in sal]
+            
+            tem = [tmp.bott_error_tem.isel(profile=ii).values for ii in ind]
+            sal = [tmp.bott_error_sal.isel(profile=ii).values for ii in ind]
+            bott_error_tem[season] = [np.nanmean(temii) for temii in tem]
+            bott_error_sal[season] = [np.nanmean(salii) for salii in sal]
+            bott_tem_N[season] = [np.sum( ~np.isnan(temii) ) for temii in tem]
+            bott_sal_N[season] = [np.sum( ~np.isnan(salii) ) for salii in sal]
                 
         ds = xr.Dataset(coords = dict(
                             longitude = ('location',lon),
@@ -692,5 +719,286 @@ class regrid_en4_stats():
                             bott_error_sal = (['season','location'], bott_error_sal),
                             bott_tem_N = (['season','location'], bott_tem_N),
                             bott_sal_N = (['season','location'], bott_sal_N)))
-        fn = os.path.join(dn_output,'en4_profile_stats_smoothed.nc')
-        ds.to_netcdf(fn)
+        ds.to_netcdf(fn_out)
+
+class plot_ts_radius_means_single_cfg():
+    def __init__(self, fn_stats, dn_out, run_name, file_type='.png', min_N=1):
+        
+        stats = xr.open_mfdataset(fn_stats, chunks={})
+        
+        #Loop over seasons
+        seasons = ['All','DJF','MAM','JJA','SON']
+        lonmax = np.nanmax(stats.longitude)
+        lonmin = np.nanmin(stats.longitude)
+        latmax = np.nanmax(stats.latitude)
+        latmin = np.nanmin(stats.latitude)
+        lonbounds = [lonmin-1, lonmax+1]
+        latbounds = [latmin-1, latmax+1]
+        
+        stats['surf_error_tem'] = xr.where(stats.surf_tem_N<min_N, np.nan, stats['surf_error_tem'])
+        stats['surf_error_sal'] = xr.where(stats.surf_sal_N<min_N, np.nan, stats['surf_error_sal'])
+        stats['bott_error_tem'] = xr.where(stats.surf_tem_N<min_N, np.nan, stats['bott_error_tem'])
+        stats['bott_error_sal'] = xr.where(stats.surf_sal_N<min_N, np.nan, stats['bott_error_sal'])
+        
+        for ss in range(1, 5):
+
+            stats_tmp = stats.isel(season=ss)   
+        
+            # Surface TEMPERATURE
+            f,a = pu.create_geo_axes(lonbounds, latbounds)
+            sca = a.scatter(stats_tmp.longitude, stats_tmp.latitude, c=stats_tmp.surf_error_tem, 
+                vmin=-1.5, vmax=1.5, linewidths=0, cmap='seismic',s=2)
+            f.colorbar(sca)
+            a.set_title('Monthly EN4 SST Anom. (degC) | {0} | {1} - EN4'.format(seasons[ss], run_name), fontsize=9)
+            fn_out = 'en4_radius_means_surf_error_tem_{0}_{1}{2}'.format(seasons[ss], run_name, file_type)
+            fn_out = os.path.join(dn_out, fn_out)
+            f.savefig(fn_out)
+            
+            #Surface SALINITY
+            f,a = pu.create_geo_axes(lonbounds, latbounds)
+            sca = a.scatter(stats_tmp.longitude, stats_tmp.latitude, c=stats_tmp.surf_error_sal, 
+                vmin=-1.5, vmax=1.5, linewidths=0, cmap='seismic', s=2)
+            f.colorbar(sca)
+            a.set_title('Monthly EN4 SSS Anom. (PSU) | {0} | {1} - EN4'.format(seasons[ss], run_name), fontsize=9)
+            fn_out = 'en4_radius_means_surf_error_sal_{0}_{1}{2}'.format(seasons[ss], run_name, file_type)
+            fn_out = os.path.join(dn_out, fn_out)
+            f.savefig(fn_out)
+            
+            # Bottom TEMPERATURE
+            f,a = pu.create_geo_axes(lonbounds, latbounds)
+            sca = a.scatter(stats_tmp.longitude, stats_tmp.latitude, c=stats_tmp.bott_error_tem, 
+                vmin=-1.5, vmax=1.5, linewidths=0, cmap='seismic', s=2)
+            f.colorbar(sca)
+            a.set_title('Monthly EN4 SBT Anom. (degC) | {0} | {1} - EN4'.format(seasons[ss], run_name), fontsize=9)
+            fn_out = 'en4_radius_means_bott_error_tem_{0}_{1}{2}'.format(seasons[ss], run_name, file_type)
+            fn_out = os.path.join(dn_out, fn_out)
+            f.savefig(fn_out)
+            
+            # Bottom SALINITY
+            f,a = pu.create_geo_axes(lonbounds, latbounds)
+            sca = a.scatter(stats_tmp.longitude, stats_tmp.latitude, c=stats_tmp.bott_error_sal, 
+                vmin=-1.5, vmax=1.5, linewidths=0, cmap='seismic', s=2)
+            f.colorbar(sca)
+            a.set_title('Monthly EN4 SBS Anom. (PSU) | {0} | {1} - EN4'.format(seasons[ss], run_name), fontsize=9)
+            fn_out = 'en4_radius_means_bott_error_sal_{0}_{1}{2}'.format(seasons[ss], run_name, file_type)
+            fn_out = os.path.join(dn_out, fn_out)
+            f.savefig(fn_out)
+        return
+    
+class plot_ts_radius_means_comparison():
+    def __init__(self, fn_stats1, fn_stats2, dn_out, run_name, file_type='.png', min_N=1):
+        
+        stats1 = xr.open_mfdataset(fn_stats1, chunks={})
+        stats2 = xr.open_mfdataset(fn_stats2, chunks={})
+        
+        #Loop over seasons
+        seasons = ['All','DJF','MAM','JJA','SON']
+        lonmax = np.nanmax(stats1.longitude)
+        lonmin = np.nanmin(stats1.longitude)
+        latmax = np.nanmax(stats1.latitude)
+        latmin = np.nanmin(stats1.latitude)
+        lonbounds = [lonmin-1, lonmax+1]
+        latbounds = [latmin-1, latmax+1]
+        
+        stats1['surf_error_tem'] = xr.where(stats1.surf_tem_N<min_N, np.nan, uf.fabs(stats1['surf_error_tem']))
+        stats1['surf_error_sal'] = xr.where(stats1.surf_sal_N<min_N, np.nan, uf.fabs(stats1['surf_error_sal']))
+        stats1['bott_error_tem'] = xr.where(stats1.surf_tem_N<min_N, np.nan, uf.fabs(stats1['bott_error_tem']))
+        stats1['bott_error_sal'] = xr.where(stats1.surf_sal_N<min_N, np.nan, uf.fabs(stats1['bott_error_sal']))
+        
+        stats2['surf_error_tem'] = xr.where(stats2.surf_tem_N<min_N, np.nan, uf.fabs(stats2['surf_error_tem']))
+        stats2['surf_error_sal'] = xr.where(stats2.surf_sal_N<min_N, np.nan, uf.fabs(stats2['surf_error_sal']))
+        stats2['bott_error_tem'] = xr.where(stats2.surf_tem_N<min_N, np.nan, uf.fabs(stats2['bott_error_tem']))
+        stats2['bott_error_sal'] = xr.where(stats2.surf_sal_N<min_N, np.nan, uf.fabs(stats2['bott_error_sal']))
+        
+        for ss in range(1, 5):
+
+            stats_tmp1 = stats1.isel(season=ss)   
+            stats_tmp2 = stats2.isel(season=ss)   
+        
+            # Surface TEMPERATURE
+            f,a = pu.create_geo_axes(lonbounds, latbounds)
+            sca = a.scatter(stats_tmp1.longitude, stats_tmp1.latitude, c=stats_tmp2.surf_error_tem - stats_tmp1.surf_error_tem, 
+                vmin=-.25, vmax=.25, linewidths=0, cmap='PiYG',s=2)
+            f.colorbar(sca)
+            a.set_title('Monthly EN4 SST Abs. Anom. Difference (degC) | {0} | {1} - {2}'.format(seasons[ss], run_name[1], run_name[0]), fontsize=9)
+            fn_out = 'en4_radius_means_surf_error_tem_{0}_{1}_{2}{3}'.format(seasons[ss], run_name[0], run_name[1], file_type)
+            fn_out = os.path.join(dn_out, fn_out)
+            f.savefig(fn_out)
+            
+            #Surface SALINITY
+            f,a = pu.create_geo_axes(lonbounds, latbounds)
+            sca = a.scatter(stats_tmp1.longitude, stats_tmp1.latitude, c=stats_tmp2.surf_error_sal - stats_tmp1.surf_error_sal, 
+                vmin=-.25, vmax=.25, linewidths=0, cmap='PiYG', s=2)
+            f.colorbar(sca)
+            a.set_title('Monthly EN4 SSS Abs. Anom. Difference (PSU) | {0} | {1} - {2}'.format(seasons[ss], run_name[1], run_name[0]), fontsize=9)
+            fn_out = 'en4_radius_means_surf_error_sal_{0}_{1}_{2}{3}'.format(seasons[ss], run_name[0], run_name[1], file_type)
+            fn_out = os.path.join(dn_out, fn_out)
+            f.savefig(fn_out)
+            
+            # Bottom TEMPERATURE
+            f,a = pu.create_geo_axes(lonbounds, latbounds)
+            sca = a.scatter(stats_tmp1.longitude, stats_tmp1.latitude, c=stats_tmp2.bott_error_tem - stats_tmp1.bott_error_tem, 
+                vmin=-.25, vmax=.25, linewidths=0, cmap='PiYG', s=2)
+            f.colorbar(sca)
+            a.set_title('Monthly EN4 SBT Abs. Anom. Difference (degC) | {0} | {1} - {2}'.format(seasons[ss], run_name[1], run_name[0]), fontsize=9)
+            fn_out = 'en4_radius_means_bott_error_tem_{0}_{1}_{2}{3}'.format(seasons[ss], run_name[0], run_name[1], file_type)
+            fn_out = os.path.join(dn_out, fn_out)
+            f.savefig(fn_out)
+            
+            # Bottom SALINITY
+            f,a = pu.create_geo_axes(lonbounds, latbounds)
+            sca = a.scatter(stats_tmp1.longitude, stats_tmp1.latitude, c=stats_tmp2.bott_error_sal - stats_tmp1.bott_error_sal, 
+                vmin=-.25, vmax=.25, linewidths=0, cmap='PiYG', s=2)
+            f.colorbar(sca)
+            a.set_title('Monthly EN4 SBS Abs. Anom. Difference (PSU) | {0} | {1} - {2}'.format(seasons[ss], run_name[1], run_name[0]), fontsize=9)
+            fn_out = 'en4_radius_means_bott_error_sal_{0}_{1}_{2}{3}'.format(seasons[ss], run_name[0], run_name[1], file_type)
+            fn_out = os.path.join(dn_out, fn_out)
+            f.savefig(fn_out)
+        
+        return
+
+class plot_ts_monthly_single_cfg():
+    
+    def __init__(self, fn_profile_stats, dn_out, run_name, file_type='.png'):
+
+        stats = xr.open_mfdataset(fn_profile_stats, chunks={})
+        
+        #Loop over seasons
+        seasons = ['All','DJF','MAM','JJA','SON']
+        lonmax = np.nanmax(stats.longitude)
+        lonmin = np.nanmin(stats.longitude)
+        latmax = np.nanmax(stats.latitude)
+        latmin = np.nanmin(stats.latitude)
+        lonbounds = [lonmin-1, lonmax+1]
+        latbounds = [latmin-1, latmax+1]
+        
+        for ss in range(0, 5):
+        
+            if ss>0:
+                ind_season = stats.season==ss
+                stats_tmp = stats.isel(profile=ind_season)    
+            else:
+                stats_tmp = stats
+        
+            # Surface TEMPERATURE
+            f,a = pu.create_geo_axes(lonbounds, latbounds)
+            sca = a.scatter(stats_tmp.longitude, stats_tmp.latitude, c=stats_tmp.surf_error_tem, 
+                vmin=-1.5, vmax=1.5, linewidths=0, zorder=100, cmap='seismic',s=1)
+            f.colorbar(sca)
+            a.set_title('Monthly EN4 SST Anom. (degC) | {0} | {1} - EN4'.format(seasons[ss], run_name), fontsize=9)
+            fn_out = 'en4_surf_error_tem_{0}_{1}{2}'.format(seasons[ss], run_name, file_type)
+            fn_out = os.path.join(dn_out, fn_out)
+            f.savefig(fn_out)
+            
+            #Surface SALINITY
+            f,a = pu.create_geo_axes(lonbounds, latbounds)
+            sca = a.scatter(stats_tmp.longitude, stats_tmp.latitude, c=stats_tmp.surf_error_sal, 
+                vmin=-1.5, vmax=1.5, linewidths=0, zorder=100, cmap='seismic', s=1)
+            f.colorbar(sca)
+            a.set_title('Monthly EN4 SSS Anom. (PSU) | {0} | {1} - EN4'.format(seasons[ss], run_name), fontsize=9)
+            fn_out = 'en4_surf_error_sal_{0}_{1}{2}'.format(seasons[ss], run_name, file_type)
+            fn_out = os.path.join(dn_out, fn_out)
+            f.savefig(fn_out)
+            
+            # Bottom TEMPERATURE
+            f,a = pu.create_geo_axes(lonbounds, latbounds)
+            sca = a.scatter(stats_tmp.longitude, stats_tmp.latitude, c=stats_tmp.bott_error_tem, 
+                vmin=-1.5, vmax=1.5, linewidths=0, zorder=100, cmap='seismic', s=1)
+            f.colorbar(sca)
+            a.set_title('Monthly EN4 SBT Anom. (degC) | {0} | {1} - EN4'.format(seasons[ss], run_name), fontsize=9)
+            fn_out = 'en4_bott_error_tem_{0}_{1}{2}'.format(seasons[ss], run_name, file_type)
+            fn_out = os.path.join(dn_out, fn_out)
+            f.savefig(fn_out)
+            
+            # Bottom SALINITY
+            f,a = pu.create_geo_axes(lonbounds, latbounds)
+            sca = a.scatter(stats_tmp.longitude, stats_tmp.latitude, c=stats_tmp.bott_error_sal, 
+                vmin=-1.5, vmax=1.5, linewidths=0, zorder=100, cmap='seismic', s=1)
+            f.colorbar(sca)
+            a.set_title('Monthly EN4 SBS Anom. (PSU) | {0} | {1} - EN4'.format(seasons[ss], run_name), fontsize=9)
+            fn_out = 'en4_bott_error_sal_{0}_{1}{2}'.format(seasons[ss], run_name, file_type)
+            fn_out = os.path.join(dn_out, fn_out)
+            f.savefig(fn_out)
+    
+    
+class plot_ts_monthly_multi_cfg():
+    def __init__(self, fn_regional_stats, dn_out, run_name, file_type='.png'):
+        
+        stats_list = [xr.open_dataset(ff, chunks={}) for ff in fn_regional_stats]
+    
+        # For titles
+        region_names = ['North Sea','Outer Shelf','Norwegian Trench','English Channel','Whole Domain']
+        # For file names
+        region_abbrev = ['northsea','outershelf','nortrench','engchannel','wholedomain']
+        
+        season_names = ['Annual','DJF','MAM','JJA','SON']
+        legend = run_name
+        n_regions = len(region_names)
+        n_seasons = len(season_names)
+        for rr in range(0,n_regions):
+            for ss in range(1,n_seasons):
+                tem_list = [tmp.prof_error_tem.isel( region=rr, season=ss, depth=np.arange(0,30) ) for tmp in stats_list]
+                sal_list = [tmp.prof_error_sal.isel( region=rr, season=ss, depth=np.arange(0,30) ) for tmp in stats_list]
+                
+                title_tmp = '$\Delta T$ | {0} | {1}'.format(region_names[rr], season_names[ss])
+                fn_out = 'prof_error_tem_{0}_{1}{2}'.format(season_names[ss], region_abbrev[rr], file_type)
+                fn_out = os.path.join(dn_out, fn_out)
+                f,a = self.plot_profile_centred(tem_list[0].depth, tem_list,
+                              title = title_tmp, legend_names = legend)
+                print("  >>>>>  Saving: " + fn_out)
+                f.savefig(fn_out)
+                plt.close()
+                
+                title_tmp = '$\Delta S$ |' + region_names[rr] +' | '+season_names[ss]
+                fn_out = 'prof_error_sal_{0}_{1}{2}'.format(season_names[ss], region_abbrev[rr], file_type)
+                fn_out = os.path.join(dn_out, fn_out)
+                f,a = self.plot_profile_centred(sal_list[0].depth, sal_list,
+                             title = title_tmp,legend_names = legend)
+                print("  >>>>>  Saving: " + fn_out)
+                f.savefig(fn_out)
+                plt.close()
+    
+                
+    def plot_profile_centred(self, depth, variables, title="", legend_names= {} ):
+    
+        fig = plt.figure(figsize=(3.5,7))
+        ax = plt.subplot(111)
+        
+        if type(variables) is not list:
+            variables = [variables]
+    
+        xmax = 0
+        for vv in variables:
+            xmax = np.max([xmax, np.nanmax(np.abs(vv))])
+            ax.plot(vv.squeeze(), depth.squeeze())
+            
+        plt.xlim(-xmax-0.05*xmax, xmax+0.05*xmax)
+        ymax = np.nanmax(np.abs(depth))
+        plt.plot([0,0],[-1e7,1e7], linestyle='--',linewidth=1,color='k')
+        plt.ylim(0,ymax)
+        plt.gca().invert_yaxis()
+        plt.ylabel('Depth (m)')
+        plt.grid()
+        plt.legend(legend_names, fontsize=10)
+        plt.title(title, fontsize=8)
+        return fig, ax
+                
+    def plot_profile(self, depth, variables, title, fn_out, legend_names= {} ):
+    
+        fig = plt.figure(figsize=(3.5,7))
+        ax = plt.subplot(111)
+        
+        if type(variables) is not list:
+            variables = [variables]
+    
+        for vv in variables:
+            ax.plot(vv.squeeze(), depth.squeeze())
+        plt.gca().invert_yaxis()
+        plt.ylabel('Depth (m)')
+        plt.grid()
+        plt.legend(legend_names)
+        plt.title(title, fontsize=12)
+        print("  >>>>>  Saving: " + fn_out)
+        plt.savefig(fn_out)
+        plt.close()
+        return fig, ax
