@@ -140,379 +140,379 @@ def par_loop_month(parii, current_month, dn_nemo_data, fn_nemo_domain, dn_en4, d
                month_season_dict, surface_def, bottom_def, dist_crit, 
                run_name, regional_masks, region_names, depth_bins):
     
-        print('Loading month of data: ' + str(current_month), flush=True)
+    print('Loading month of data: ' + str(current_month), flush=True)
+    
+    # Make filenames for current month and read NEMO/EN4
+    # If this files (e.g. file does not exist), skip to next month
+    print(dn_nemo_data)
+    try:
+        fn_nemo_month = make_nemo_filename(dn_nemo_data, current_month, nemo_file_suffix)
+        fn_en4_month = make_en4_filename(dn_en4, current_month, en4_file_prefix)
+        print(fn_nemo_month)
+        print(fn_en4_month)
+        mod_month = read_monthly_model_nemo(fn_nemo_month, fn_nemo_domain)
+        obs_month = read_monthly_profile_en4(fn_en4_month)
+    except:        
+        print('       !!!Problem with read: Not analyzed ')
+        return None
+    
+    # ----------------------------------------------------
+    # Init 2) Use only observations that are within model domain
+    lonmax = np.nanmax(mod_month['longitude'])
+    lonmin = np.nanmin(mod_month['longitude'])
+    latmax = np.nanmax(mod_month['latitude'])
+    latmin = np.nanmin(mod_month['latitude'])
+    ind = coast.general_utils.subset_indices_lonlat_box(obs_month['longitude'], 
+                                                        obs_month['latitude'],
+                                                        lonmin, lonmax, 
+                                                        latmin, latmax)[0]
+    obs_month = obs_month.isel(profile=ind)
+    obs_month = obs_month.load()
+    
+    # ----------------------------------------------------
+    # Init 4) Get model indices (space and time) corresponding to observations
+    ind2D = coastgu.nearest_indices_2D(mod_month['longitude'], 
+                                       mod_month['latitude'],
+                                       obs_month['longitude'], 
+                                       obs_month['latitude'], 
+                                       mask=mod_month.landmask)
+
+    n_prof = len(obs_month.time) # Number of profiles in this month
+    mod_profiles = mod_month.isel(x_dim=ind2D[0], y_dim=ind2D[1])
+    mod_profiles = mod_profiles.rename({'dim_0':'profile'})
+    
+    # Define regional bools
+    n_r = mod_month.dims['y_dim']
+    n_c = mod_month.dims['x_dim']
+    regional_masks = regional_masks.copy()
+    region_names = region_names.copy()
+    regional_masks.append(np.ones((n_r, n_c)))
+    region_names.append('whole_domain')
+    n_regions = len(region_names)
+    is_in_region = [mm[ind2D[1], ind2D[0]] for mm in regional_masks]
+    
+    # Define monthly variable arrays for interpolated data
+    mod_tem = np.zeros((n_prof , n_obs_levels))*np.nan
+    obs_tem = np.zeros((n_prof, n_obs_levels))*np.nan
+    mod_sal = np.zeros((n_prof, n_obs_levels))*np.nan
+    obs_sal = np.zeros((n_prof, n_obs_levels))*np.nan
+    mod_rho = np.zeros((n_prof, n_obs_levels))*np.nan
+    obs_rho = np.zeros((n_prof, n_obs_levels))*np.nan
+    mod_s0 = np.zeros((n_prof, n_obs_levels))*np.nan
+    obs_s0 = np.zeros((n_prof, n_obs_levels))*np.nan
+    obs_z = np.zeros((n_prof, n_obs_levels))*np.nan
+    
+    bin_widths = depth_bins[1:] - depth_bins[:-1]
+    ref_depth = depth_bins[:-1] + .5*bin_widths
+    n_ref_depth_bins = len(depth_bins)
+    n_ref_depth = len(ref_depth)
+    
+    mod_tem_bin = np.zeros((n_prof , n_ref_depth))*np.nan
+    mod_sal_bin = np.zeros((n_prof , n_ref_depth))*np.nan
+    obs_tem_bin = np.zeros((n_prof , n_ref_depth))*np.nan
+    obs_sal_bin = np.zeros((n_prof , n_ref_depth))*np.nan
+
+    # Loop over profiles, interpolate model to obs depths and store in
+    # monthly arrays
+    ind_prof_use = []
+    
+    for prof in range(0,n_prof):
         
-        # Make filenames for current month and read NEMO/EN4
-        # If this files (e.g. file does not exist), skip to next month
-        print(dn_nemo_data)
+        # Select the current profile
+        mod_profile = mod_profiles.isel(profile = prof)
+        obs_profile = obs_month.isel(profile = prof)
+        
+        # If the nearest neighbour interpolation is bad, then skip the 
+        # vertical interpolation -> keep profile as nans in monthly array
+        if all(np.isnan(mod_profile.temperature)):
+            continue
+        
+        # Check that model point is within threshold distance of obs
+        # If not, skip vertical interpolation -> keep profile as nans
+        interp_dist = coastgu.calculate_haversine_distance(
+                                             obs_profile.longitude, 
+                                             obs_profile.latitude, 
+                                             mod_profile.longitude, 
+                                             mod_profile.latitude)
+        if interp_dist > dist_crit:
+            continue
+        
+        # Use bottom_level to mask dry depths
+        bl = mod_profile.bottom_level.squeeze().values
+        mod_profile = mod_profile.isel(z_dim=range(0,bl))
+        
+        #
+        # Interpolate model to obs depths using a linear interp
+        #
+        obs_profile = obs_profile.rename({'z_dim':'depth'})
+        obs_profile = obs_profile.set_coords('depth')
+        mod_profile = mod_profile.rename({'z_dim':'depth_0'})
+        
+        # If interpolation fails for some reason, skip to next iteration
         try:
-            fn_nemo_month = make_nemo_filename(dn_nemo_data, current_month, nemo_file_suffix)
-            fn_en4_month = make_en4_filename(dn_en4, current_month, en4_file_prefix)
-            print(fn_nemo_month)
-            print(fn_en4_month)
-            mod_month = read_monthly_model_nemo(fn_nemo_month, fn_nemo_domain)
-            obs_month = read_monthly_profile_en4(fn_en4_month)
-        except:        
-            print('       !!!Problem with read: Not analyzed ')
-            return None
+            mod_profile_int = mod_profile.interp(depth_0 = obs_profile.depth.values)
+        except:
+            continue
+        
+        # Bin profile data by depth bins
+    
+        mod_tem_bin[prof] = spst.binned_statistic(obs_profile.depth.values, 
+                                            mod_profile_int.temperature.values, 
+                                            'mean', depth_bins)[0]
+        mod_sal_bin[prof] = spst.binned_statistic(obs_profile.depth.values, 
+                                            mod_profile_int.salinity.values, 
+                                            'mean', depth_bins)[0]
+        obs_tem_bin[prof] = spst.binned_statistic(obs_profile.depth.values, 
+                                            obs_profile.temperature.values, 
+                                            'mean', depth_bins)[0]
+        obs_sal_bin[prof] = spst.binned_statistic(obs_profile.depth.values, 
+                                            obs_profile.salinity.values, 
+                                            'mean', depth_bins)[0]
         
         # ----------------------------------------------------
-        # Init 2) Use only observations that are within model domain
-        lonmax = np.nanmax(mod_month['longitude'])
-        lonmin = np.nanmin(mod_month['longitude'])
-        latmax = np.nanmax(mod_month['latitude'])
-        latmin = np.nanmin(mod_month['latitude'])
-        ind = coast.general_utils.subset_indices_lonlat_box(obs_month['longitude'], 
-                                                            obs_month['latitude'],
-                                                            lonmin, lonmax, 
-                                                            latmin, latmax)[0]
-        obs_month = obs_month.isel(profile=ind)
-        obs_month = obs_month.load()
+        # Analysis 2) Calculate Density per Profile using GSW
         
-        # ----------------------------------------------------
-        # Init 4) Get model indices (space and time) corresponding to observations
-        ind2D = coastgu.nearest_indices_2D(mod_month['longitude'], 
-                                           mod_month['latitude'],
-                                           obs_month['longitude'], 
-                                           obs_month['latitude'], 
-                                           mask=mod_month.landmask)
-
-        n_prof = len(obs_month.time) # Number of profiles in this month
-        mod_profiles = mod_month.isel(x_dim=ind2D[0], y_dim=ind2D[1])
-        mod_profiles = mod_profiles.rename({'dim_0':'profile'})
+        # Calculate Density
+        ap_obs = gsw.p_from_z( -obs_profile.depth, obs_profile.latitude )
+        ap_mod = gsw.p_from_z( -obs_profile.depth, mod_profile_int.latitude )
+        # Absolute Salinity            
+        sa_obs = gsw.SA_from_SP( obs_profile.salinity, ap_obs, 
+                                obs_profile.longitude, 
+                                obs_profile.latitude )
+        sa_mod = gsw.SA_from_SP( mod_profile_int.salinity, ap_mod, 
+                                mod_profile_int.longitude, 
+                                mod_profile_int.latitude )
+        # Conservative Temperature
+        ct_obs = gsw.CT_from_pt( sa_obs, obs_profile.temperature ) 
+        ct_mod = gsw.CT_from_pt( sa_mod, mod_profile_int.temperature ) 
         
-        # Define regional bools
-        n_r = mod_month.dims['y_dim']
-        n_c = mod_month.dims['x_dim']
-        regional_masks.append(np.ones((n_r, n_c)))
-        region_names.append('whole_domain')
-        n_regions = len(region_names)
-        is_in_region = [mm[ind2D[1], ind2D[0]] for mm in regional_masks]
+        # In-situ density
+        obs_rho_tmp = gsw.rho( sa_obs, ct_obs, ap_obs )
+        mod_rho_tmp = gsw.rho( sa_mod, ct_mod, ap_mod ) 
         
-        # Define monthly variable arrays for interpolated data
-        mod_tem = np.zeros((n_prof , n_obs_levels))*np.nan
-        obs_tem = np.zeros((n_prof, n_obs_levels))*np.nan
-        mod_sal = np.zeros((n_prof, n_obs_levels))*np.nan
-        obs_sal = np.zeros((n_prof, n_obs_levels))*np.nan
-        mod_rho = np.zeros((n_prof, n_obs_levels))*np.nan
-        obs_rho = np.zeros((n_prof, n_obs_levels))*np.nan
-        mod_s0 = np.zeros((n_prof, n_obs_levels))*np.nan
-        obs_s0 = np.zeros((n_prof, n_obs_levels))*np.nan
-        obs_z = np.zeros((n_prof, n_obs_levels))*np.nan
+        # Potential Density
+        obs_s0_tmp = gsw.sigma0(sa_obs, ct_obs)
+        mod_s0_tmp = gsw.sigma0(sa_mod, ct_mod)
         
-        bin_widths = depth_bins[1:] - depth_bins[:-1]
-        ref_depth = depth_bins[:-1] + .5*bin_widths
-        n_ref_depth_bins = len(depth_bins)
-        n_ref_depth = len(ref_depth)
+        # Assign monthly array
+        mod_tem[prof] = mod_profile_int.temperature.values
+        obs_tem[prof] = obs_profile.temperature.values
+        mod_sal[prof] = mod_profile_int.salinity.values
+        obs_sal[prof] = obs_profile.salinity.values
+        mod_rho[prof] = mod_rho_tmp
+        obs_rho[prof] = obs_rho_tmp
+        mod_s0[prof] = mod_s0_tmp
+        obs_s0[prof] = obs_s0_tmp
+        obs_z[prof] = obs_profile.depth
         
-        mod_tem_bin = np.zeros((n_prof , n_ref_depth))*np.nan
-        mod_sal_bin = np.zeros((n_prof , n_ref_depth))*np.nan
-        obs_tem_bin = np.zeros((n_prof , n_ref_depth))*np.nan
-        obs_sal_bin = np.zeros((n_prof , n_ref_depth))*np.nan
-
-        # Loop over profiles, interpolate model to obs depths and store in
-        # monthly arrays
-        ind_prof_use = []
+        # If got to this point then keep the profile
+        ind_prof_use.append(prof)
         
-        for prof in range(0,n_prof):
-            
-            # Select the current profile
-            mod_profile = mod_profiles.isel(profile = prof)
-            obs_profile = obs_month.isel(profile = prof)
-            
-            # If the nearest neighbour interpolation is bad, then skip the 
-            # vertical interpolation -> keep profile as nans in monthly array
-            if all(np.isnan(mod_profile.temperature)):
-                continue
-            
-            # Check that model point is within threshold distance of obs
-            # If not, skip vertical interpolation -> keep profile as nans
-            interp_dist = coastgu.calculate_haversine_distance(
-                                                 obs_profile.longitude, 
-                                                 obs_profile.latitude, 
-                                                 mod_profile.longitude, 
-                                                 mod_profile.latitude)
-            if interp_dist > dist_crit:
-                continue
-            
-            # Use bottom_level to mask dry depths
-            bl = mod_profile.bottom_level.squeeze().values
-            mod_profile = mod_profile.isel(z_dim=range(0,bl))
-            
-            #
-            # Interpolate model to obs depths using a linear interp
-            #
-            obs_profile = obs_profile.rename({'z_dim':'depth'})
-            obs_profile = obs_profile.set_coords('depth')
-            mod_profile = mod_profile.rename({'z_dim':'depth_0'})
-            
-            # If interpolation fails for some reason, skip to next iteration
-            try:
-                mod_profile_int = mod_profile.interp(depth_0 = obs_profile.depth.values)
-            except:
-                continue
-            
-            # Bin profile data by depth bins
-        
-            mod_tem_bin[prof] = spst.binned_statistic(obs_profile.depth.values, 
-                                                mod_profile_int.temperature.values, 
-                                                'mean', depth_bins)[0]
-            mod_sal_bin[prof] = spst.binned_statistic(obs_profile.depth.values, 
-                                                mod_profile_int.salinity.values, 
-                                                'mean', depth_bins)[0]
-            obs_tem_bin[prof] = spst.binned_statistic(obs_profile.depth.values, 
-                                                obs_profile.temperature.values, 
-                                                'mean', depth_bins)[0]
-            obs_sal_bin[prof] = spst.binned_statistic(obs_profile.depth.values, 
-                                                obs_profile.salinity.values, 
-                                                'mean', depth_bins)[0]
-            
-            # ----------------------------------------------------
-            # Analysis 2) Calculate Density per Profile using GSW
-            
-            # Calculate Density
-            ap_obs = gsw.p_from_z( -obs_profile.depth, obs_profile.latitude )
-            ap_mod = gsw.p_from_z( -obs_profile.depth, mod_profile_int.latitude )
-            # Absolute Salinity            
-            sa_obs = gsw.SA_from_SP( obs_profile.salinity, ap_obs, 
-                                    obs_profile.longitude, 
-                                    obs_profile.latitude )
-            sa_mod = gsw.SA_from_SP( mod_profile_int.salinity, ap_mod, 
-                                    mod_profile_int.longitude, 
-                                    mod_profile_int.latitude )
-            # Conservative Temperature
-            ct_obs = gsw.CT_from_pt( sa_obs, obs_profile.temperature ) 
-            ct_mod = gsw.CT_from_pt( sa_mod, mod_profile_int.temperature ) 
-            
-            # In-situ density
-            obs_rho_tmp = gsw.rho( sa_obs, ct_obs, ap_obs )
-            mod_rho_tmp = gsw.rho( sa_mod, ct_mod, ap_mod ) 
-            
-            # Potential Density
-            obs_s0_tmp = gsw.sigma0(sa_obs, ct_obs)
-            mod_s0_tmp = gsw.sigma0(sa_mod, ct_mod)
-            
-            # Assign monthly array
-            mod_tem[prof] = mod_profile_int.temperature.values
-            obs_tem[prof] = obs_profile.temperature.values
-            mod_sal[prof] = mod_profile_int.salinity.values
-            obs_sal[prof] = obs_profile.salinity.values
-            mod_rho[prof] = mod_rho_tmp
-            obs_rho[prof] = obs_rho_tmp
-            mod_s0[prof] = mod_s0_tmp
-            obs_s0[prof] = obs_s0_tmp
-            obs_z[prof] = obs_profile.depth
-            
-            # If got to this point then keep the profile
-            ind_prof_use.append(prof)
-            
-        print('       Interpolated Profiles.', flush=True)
-        # Find the union of masks for each variable
-        mask_tem = np.logical_or(np.isnan(mod_tem), np.isnan(obs_tem))
-        mask_sal = np.logical_or(np.isnan(mod_sal), np.isnan(obs_sal))
-        mask_rho = np.logical_or(np.isnan(mod_rho), np.isnan(obs_rho))
-        
-        mod_tem[mask_tem] = np.nan
-        obs_tem[mask_tem] = np.nan
-        mod_sal[mask_sal] = np.nan
-        obs_sal[mask_sal] = np.nan
-        
-        # Monthly stats xarray dataset - for file output and easy indexing
-        data = xr.Dataset(coords = dict(
-                                  longitude=(["profile"], obs_month.longitude),
-                                  latitude=(["profile"], obs_month.latitude),
-                                  time=(["profile"], obs_month.time),
-                                  level=(['level'], np.arange(0,400)),
-                                  region = (['region'], region_names)),
-                              data_vars = dict(
-                                  mod_tem = (['profile','level'], mod_tem),
-                                  obs_tem = (['profile','level'], obs_tem),
-                                  mod_sal = (['profile','level'], mod_sal),
-                                  obs_sal = (['profile','level'], obs_sal),
-                                  mod_rho = (['profile','level'], mod_rho),
-                                  obs_rho = (['profile','level'], obs_rho),
-                                  mod_s0 = (['profile', 'level'], mod_s0),
-                                  obs_s0 = (['profile', 'level'], obs_s0),
-                                  mask_tem = (['profile','level'], mask_tem),
-                                  mask_sal = (['profile','level'], mask_sal),
-                                  mask_rho = (['profile','level'], mask_rho),
-                                  obs_z = (['profile','level'], obs_z),
-                                  is_in_region = (['region','profile'], is_in_region)))
-        
-        analysis = xr.Dataset(coords = dict(
-                                  longitude=(["profile"], obs_month.longitude),
-                                  latitude=(["profile"], obs_month.latitude),
-                                  time=(["profile"], obs_month.time),
-                                  level=(['level'], np.arange(0,400)),
-                                  bin_depth = (['bin_depth'], ref_depth),
-                                  region = (['region'], region_names)),
+    print('       Interpolated Profiles.', flush=True)
+    # Find the union of masks for each variable
+    mask_tem = np.logical_or(np.isnan(mod_tem), np.isnan(obs_tem))
+    mask_sal = np.logical_or(np.isnan(mod_sal), np.isnan(obs_sal))
+    mask_rho = np.logical_or(np.isnan(mod_rho), np.isnan(obs_rho))
+    
+    mod_tem[mask_tem] = np.nan
+    obs_tem[mask_tem] = np.nan
+    mod_sal[mask_sal] = np.nan
+    obs_sal[mask_sal] = np.nan
+    
+    # Monthly stats xarray dataset - for file output and easy indexing
+    data = xr.Dataset(coords = dict(
+                              longitude=(["profile"], obs_month.longitude),
+                              latitude=(["profile"], obs_month.latitude),
+                              time=(["profile"], obs_month.time),
+                              level=(['level'], np.arange(0,400)),
+                              region = (['region'], region_names)),
                           data_vars = dict(
-                                  obs_z = (['profile','level'], obs_z),
-                                  mod_tem_binned = (['profile','bin_depth'], mod_tem_bin),
-                                  mod_sal_binned = (['profile','bin_depth'], mod_sal_bin),
-                                  obs_tem_binned = (['profile','bin_depth'], obs_tem_bin),
-                                  obs_sal_binned = (['profile','bin_depth'], obs_sal_bin),
-                                  is_in_region = (['region','profile'], is_in_region)))
-        
-        # Keep the profiles we want to keep
-        n_prof_use = len(ind_prof_use)
-        analysis = analysis.isel(profile = ind_prof_use)
-        data = data.isel(profile = ind_prof_use)
-        
-        # Define season
-        month_season_dict = {1:1, 2:1, 3:2, 4:2, 5:2, 6:3,
-                             7:3, 8:3, 9:4, 10:4, 11:4, 12:1}
-        current_season = month_season_dict[current_month.month]
-        season_save = np.ones(n_prof_use)*current_season
-        
-        analysis['season'] = ('profile', season_save)
-        data['season'] = ('profile', season_save)
-        data.attrs['run_name'] = run_name
-        analysis.attrs['run_name'] = run_name
-        
-        # ----------------------------------------------------
-        # Analysis 3) All Anomalies
-        # Errors at all depths
-        analysis["error_tem"] = data.mod_tem - data.obs_tem
-        analysis["error_sal"] = data.mod_sal - data.obs_sal
-        analysis["error_tem_binned"] = analysis.mod_tem_binned - analysis.obs_tem_binned
-        analysis["error_sal_binned"] = analysis.mod_sal_binned - analysis.obs_sal_binned
-        
-        # Absolute errors at all depths
-        analysis["abs_error_tem"] = np.abs(analysis.error_tem)
-        analysis["abs_error_sal"] = np.abs(analysis.error_sal)
-        
-        # ----------------------------------------------------
-        # Analysis 7) Whole profile stats
-        # Mean errors across depths
-        
-        analysis['me_tem'] = ('profile', np.nanmean(analysis.error_tem, axis=1))
-        analysis['me_sal'] = ('profile', np.nanmean(analysis.error_sal, axis=1))
-        
-        # Mean absolute errors across depths
-        analysis['mae_tem'] = (['profile'], 
-                               np.nanmean(analysis.abs_error_tem, axis=1))
-        analysis['mae_sal'] = (['profile'], 
-                               np.nanmean(analysis.abs_error_tem, axis=1))
-        
-        print('       Basic errors done. ', flush=True)
-        
-        # ----------------------------------------------------
-        # Analysis 4) Surface stats
-        # Get indices corresponding to surface depth
-        # Get averages over surface depths
-        analysis['surface_definition'] = surface_def
-        surface_ind = data.obs_z.values <= surface_def
-        
-        mod_sal_tmp = np.array(data.mod_sal)
-        mod_tem_tmp = np.array(data.mod_tem)
-        obs_sal_tmp = np.array(data.obs_sal)
-        obs_tem_tmp = np.array(data.obs_tem)
+                              mod_tem = (['profile','level'], mod_tem),
+                              obs_tem = (['profile','level'], obs_tem),
+                              mod_sal = (['profile','level'], mod_sal),
+                              obs_sal = (['profile','level'], obs_sal),
+                              mod_rho = (['profile','level'], mod_rho),
+                              obs_rho = (['profile','level'], obs_rho),
+                              mod_s0 = (['profile', 'level'], mod_s0),
+                              obs_s0 = (['profile', 'level'], obs_s0),
+                              mask_tem = (['profile','level'], mask_tem),
+                              mask_sal = (['profile','level'], mask_sal),
+                              mask_rho = (['profile','level'], mask_rho),
+                              obs_z = (['profile','level'], obs_z),
+                              is_in_region = (['region','profile'], is_in_region)))
+    
+    analysis = xr.Dataset(coords = dict(
+                              longitude=(["profile"], obs_month.longitude),
+                              latitude=(["profile"], obs_month.latitude),
+                              time=(["profile"], obs_month.time),
+                              level=(['level'], np.arange(0,400)),
+                              bin_depth = (['bin_depth'], ref_depth),
+                              region = (['region'], region_names)),
+                      data_vars = dict(
+                              obs_z = (['profile','level'], obs_z),
+                              mod_tem_binned = (['profile','bin_depth'], mod_tem_bin),
+                              mod_sal_binned = (['profile','bin_depth'], mod_sal_bin),
+                              obs_tem_binned = (['profile','bin_depth'], obs_tem_bin),
+                              obs_sal_binned = (['profile','bin_depth'], obs_sal_bin),
+                              is_in_region = (['region','profile'], is_in_region)))
+    
+    # Keep the profiles we want to keep
+    n_prof_use = len(ind_prof_use)
+    analysis = analysis.isel(profile = ind_prof_use)
+    data = data.isel(profile = ind_prof_use)
+    
+    # Define season
+    month_season_dict = {1:1, 2:1, 3:2, 4:2, 5:2, 6:3,
+                         7:3, 8:3, 9:4, 10:4, 11:4, 12:1}
+    current_season = month_season_dict[current_month.month]
+    season_save = np.ones(n_prof_use)*current_season
+    
+    analysis['season'] = ('profile', season_save)
+    data['season'] = ('profile', season_save)
+    data.attrs['run_name'] = run_name
+    analysis.attrs['run_name'] = run_name
+    
+    # ----------------------------------------------------
+    # Analysis 3) All Anomalies
+    # Errors at all depths
+    analysis["error_tem"] = data.mod_tem - data.obs_tem
+    analysis["error_sal"] = data.mod_sal - data.obs_sal
+    analysis["error_tem_binned"] = analysis.mod_tem_binned - analysis.obs_tem_binned
+    analysis["error_sal_binned"] = analysis.mod_sal_binned - analysis.obs_sal_binned
+    
+    # Absolute errors at all depths
+    analysis["abs_error_tem"] = np.abs(analysis.error_tem)
+    analysis["abs_error_sal"] = np.abs(analysis.error_sal)
+    
+    # ----------------------------------------------------
+    # Analysis 7) Whole profile stats
+    # Mean errors across depths
+    
+    analysis['me_tem'] = ('profile', np.nanmean(analysis.error_tem, axis=1))
+    analysis['me_sal'] = ('profile', np.nanmean(analysis.error_sal, axis=1))
+    
+    # Mean absolute errors across depths
+    analysis['mae_tem'] = (['profile'], 
+                           np.nanmean(analysis.abs_error_tem, axis=1))
+    analysis['mae_sal'] = (['profile'], 
+                           np.nanmean(analysis.abs_error_tem, axis=1))
+    
+    print('       Basic errors done. ', flush=True)
+    
+    # ----------------------------------------------------
+    # Analysis 4) Surface stats
+    # Get indices corresponding to surface depth
+    # Get averages over surface depths
+    analysis['surface_definition'] = surface_def
+    surface_ind = data.obs_z.values <= surface_def
+    
+    mod_sal_tmp = np.array(data.mod_sal)
+    mod_tem_tmp = np.array(data.mod_tem)
+    obs_sal_tmp = np.array(data.obs_sal)
+    obs_tem_tmp = np.array(data.obs_tem)
 
-        mod_sal_tmp[~surface_ind] = np.nan
-        mod_tem_tmp[~surface_ind] = np.nan
-        obs_sal_tmp[~surface_ind] = np.nan
-        obs_tem_tmp[~surface_ind] = np.nan
-            
-        # Average over surfacedepths
-        mod_surf_tem = np.nanmean(mod_tem_tmp, axis=1)
-        mod_surf_sal = np.nanmean(mod_sal_tmp, axis=1)
-        obs_surf_tem = np.nanmean(obs_tem_tmp, axis=1)
-        obs_surf_sal = np.nanmean(obs_sal_tmp, axis=1)
+    mod_sal_tmp[~surface_ind] = np.nan
+    mod_tem_tmp[~surface_ind] = np.nan
+    obs_sal_tmp[~surface_ind] = np.nan
+    obs_tem_tmp[~surface_ind] = np.nan
+        
+    # Average over surfacedepths
+    mod_surf_tem = np.nanmean(mod_tem_tmp, axis=1)
+    mod_surf_sal = np.nanmean(mod_sal_tmp, axis=1)
+    obs_surf_tem = np.nanmean(obs_tem_tmp, axis=1)
+    obs_surf_sal = np.nanmean(obs_sal_tmp, axis=1)
  
-        # Assign to output arrays
-        surf_error_tem =  mod_surf_tem - obs_surf_tem
-        surf_error_sal =  mod_surf_sal - obs_surf_sal
+    # Assign to output arrays
+    surf_error_tem =  mod_surf_tem - obs_surf_tem
+    surf_error_sal =  mod_surf_sal - obs_surf_sal
+    
+    analysis['surf_error_tem'] = (['profile'], surf_error_tem)
+    analysis['surf_error_sal'] = (['profile'], surf_error_sal)
+    
+    # ----------------------------------------------------
+    # Analysis 5) Bottom stats
+    # Estimate ocean depth as sum of e3t
+    analysis['bottom_definition'] = bottom_def
+    prof_bathy = mod_profiles.bathymetry.isel(profile=ind_prof_use)
+    percent_depth = bottom_def
+    # Get indices of bottom depths
+    bott_ind = data.obs_z.values >= (prof_bathy - percent_depth).values[:,None]
+    
+    mod_sal_tmp = np.array(data.mod_sal)
+    mod_tem_tmp = np.array(data.mod_tem)
+    obs_sal_tmp = np.array(data.obs_sal)
+    obs_tem_tmp = np.array(data.obs_tem)
+    
+    mod_sal_tmp[~bott_ind] = np.nan
+    mod_tem_tmp[~bott_ind] = np.nan
+    obs_sal_tmp[~bott_ind] = np.nan
+    obs_tem_tmp[~bott_ind] = np.nan
         
-        analysis['surf_error_tem'] = (['profile'], surf_error_tem)
-        analysis['surf_error_sal'] = (['profile'], surf_error_sal)
+    # Average over bottom depths
+    mod_bott_sal = np.nanmean(mod_sal_tmp, axis=1)
+    obs_bott_tem = np.nanmean(obs_tem_tmp, axis=1)
+    mod_bott_tem = np.nanmean(mod_tem_tmp, axis=1)
+    obs_bott_sal = np.nanmean(obs_sal_tmp, axis=1)
+    
+    analysis['bott_error_tem'] = (['profile'], mod_bott_tem - obs_bott_tem)
+    analysis['bott_error_sal'] = (['profile'], mod_bott_sal - obs_bott_sal)
+    
+    print('       Surface and bottom errors done. ', flush=True)
+              
+    # ----------------------------------------------------
+    # WRITE 1) Write monthly stats to file
+    
+    # Postproc 1) Write data to file for each month - profiles stats
+    yy = str(current_month.year)
+    mm = str(current_month.month)
+    
+    # Create temp monthly file and write to it
+    fn_tmp = 'en4_stats_by_profile_{0}{1}_{2}.nc'.format(yy,mm.zfill(2),run_name)
+    fn_sta = os.path.join(dn_out, fn_tmp)
+    write_ds_to_file(analysis, fn_sta, mode='w', unlimited_dims='profile')
+    
+    print('       File Written: ' + fn_tmp, flush=True)
         
-        # ----------------------------------------------------
-        # Analysis 5) Bottom stats
-        # Estimate ocean depth as sum of e3t
-        analysis['bottom_definition'] = bottom_def
-        prof_bathy = mod_profiles.bathymetry.isel(profile=ind_prof_use)
-        percent_depth = bottom_def
-        # Get indices of bottom depths
-        bott_ind = data.obs_z.values >= (prof_bathy - percent_depth).values[:,None]
         
-        mod_sal_tmp = np.array(data.mod_sal)
-        mod_tem_tmp = np.array(data.mod_tem)
-        obs_sal_tmp = np.array(data.obs_sal)
-        obs_tem_tmp = np.array(data.obs_tem)
-        
-        mod_sal_tmp[~bott_ind] = np.nan
-        mod_tem_tmp[~bott_ind] = np.nan
-        obs_sal_tmp[~bott_ind] = np.nan
-        obs_tem_tmp[~bott_ind] = np.nan
-            
-        # Average over bottom depths
-        mod_bott_sal = np.nanmean(mod_sal_tmp, axis=1)
-        obs_bott_tem = np.nanmean(obs_tem_tmp, axis=1)
-        mod_bott_tem = np.nanmean(mod_tem_tmp, axis=1)
-        obs_bott_sal = np.nanmean(obs_sal_tmp, axis=1)
-        
-        analysis['bott_error_tem'] = (['profile'], mod_bott_tem - obs_bott_tem)
-        analysis['bott_error_sal'] = (['profile'], mod_bott_sal - obs_bott_sal)
-        
-        print('       Surface and bottom errors done. ', flush=True)
-                  
-        # ----------------------------------------------------
-        # WRITE 1) Write monthly stats to file
-        
-        # Postproc 1) Write data to file for each month - profiles stats
-        yy = str(current_month.year)
-        mm = str(current_month.month)
-        
-        # Create temp monthly file and write to it
-        fn_tmp = 'en4_stats_by_profile_{0}{1}_{2}.nc'.format(yy,mm.zfill(2),run_name)
-        fn_sta = os.path.join(dn_out, fn_tmp)
-        write_ds_to_file(analysis, fn_sta, mode='w', unlimited_dims='profile')
-        
-        print('       File Written: ' + fn_tmp, flush=True)
-            
-            
-        # ----------------------------------------------------
-        # WRITE 2) Write monthly extracted profiles to file
-        
-        # Create temp monthly file and write to it
-        fn_tmp = 'en4_extracted_profiles_{0}{1}_{2}.nc'.format(yy,mm.zfill(2), run_name)
-        fn_ext = os.path.join(dn_out, fn_tmp)
-        write_ds_to_file(data, fn_ext, mode='w', unlimited_dims='profile')
-        
-        print('       File Written: ' + fn_tmp, flush=True)
-        
-        return (parii, fn_sta, fn_ext)
+    # ----------------------------------------------------
+    # WRITE 2) Write monthly extracted profiles to file
+    
+    # Create temp monthly file and write to it
+    fn_tmp = 'en4_extracted_profiles_{0}{1}_{2}.nc'.format(yy,mm.zfill(2), run_name)
+    fn_ext = os.path.join(dn_out, fn_tmp)
+    write_ds_to_file(data, fn_ext, mode='w', unlimited_dims='profile')
+    
+    print('       File Written: ' + fn_tmp, flush=True)
+    
+    return (parii, fn_sta, fn_ext)
 
 def par_loop_regional(rr, ss, fn_stats):
     
-        stats = xr.open_dataset(fn_stats, chunks={'profile':10000})
-        
-        month_season_dict = {1:1, 2:1, 3:2, 4:2, 5:2, 6:3,
-                             7:3, 8:3, 9:4, 10:4, 11:4, 12:1}
-        pd_time = pd.to_datetime(stats.time.values)
-        pd_month = pd_time.month
-        pd_season = np.array([month_season_dict[mm] for mm in pd_month])
-        
-        stats = stats.drop_vars(['obs_z','error_tem','error_sal','abs_error_tem',
-                                 'abs_error_sal'])
-        
-        ss_ind = (pd_season==ss).squeeze()
-        rr_ind = (stats.is_in_region.isel(region=rr)).squeeze().astype(bool)
-                
-        if all(~ss_ind) or all(~rr_ind):
-            return (None, None, None)
-                
-        ind = np.where( np.logical_and(ss_ind, rr_ind) )[0]
-        stats_tmp = stats.isel(profile=ind)
-        stats_mean = stats_tmp.mean(dim='profile', skipna=True).compute()
-        stats.close()
-
-        return (rr, ss, stats_mean)
-
-class analyse_ts_monthly_en4():
+    stats = xr.open_dataset(fn_stats, chunks={'profile':10000})
     
-    def __init__(self, dn_nemo_data, fn_nemo_domain, dn_en4, dn_out, 
+    month_season_dict = {1:1, 2:1, 3:2, 4:2, 5:2, 6:3,
+                         7:3, 8:3, 9:4, 10:4, 11:4, 12:1}
+    pd_time = pd.to_datetime(stats.time.values)
+    pd_month = pd_time.month
+    pd_season = np.array([month_season_dict[mm] for mm in pd_month])
+    
+    stats = stats.drop_vars(['obs_z','error_tem','error_sal','abs_error_tem',
+                             'abs_error_sal'])
+    
+    ss_ind = (pd_season==ss).squeeze()
+    rr_ind = (stats.is_in_region.isel(region=rr)).squeeze().astype(bool)
+            
+    if all(~ss_ind) or all(~rr_ind):
+        return (None, None, None)
+            
+    ind = np.where( np.logical_and(ss_ind, rr_ind) )[0]
+    stats_tmp = stats.isel(profile=ind)
+    stats_mean = stats_tmp.mean(dim='profile', skipna=True).compute()
+    stats.close()
+
+    return (rr, ss, stats_mean)
+
+def analyse_ts_monthly_en4(dn_nemo_data, fn_nemo_domain, dn_en4, dn_out, 
                  start_month, end_month, run_name, n_proc=1,
                  nemo_file_suffix = '01_monthly_grid_T',
                  en4_file_prefix = 'EN.4.2.1.f.profiles.g10.',
@@ -521,147 +521,148 @@ class analyse_ts_monthly_en4():
                  mld_threshold = 0.02, dist_crit=5, 
                  depth_bins = np.arange(-0.001,200,5)):
 
-        # Define a counter which keeps track of the current month
-        n_months = (end_month.year - start_month.year)*12 + \
-                        (end_month.month - start_month.month) + 1
-        month_list = [start_month + relativedelta(months=+mm) for mm in range(0,n_months)]
+    # Define a counter which keeps track of the current month
+    n_months = (end_month.year - start_month.year)*12 + \
+                    (end_month.month - start_month.month) + 1
+    month_list = [start_month + relativedelta(months=+mm) for mm in range(0,n_months)]
+    
+    # Define a log file to output progress
+    print(' *Profile analysis starting.*')
+    
+    # Number of levels in EN4 data
+    n_obs_levels = 400
+    
+    # Define seasons for seasonal averaging/collation
+    month_season_dict = {1:1, 2:1, 3:2, 4:2, 5:2, 6:3,
+                         7:3, 8:3, 9:4, 10:4, 11:4, 12:1}
+    
+    if n_proc > 1:
+        pool = mp.Pool(n_proc)
+        parout = []
+        for parii in range(0, n_months):
+            r = pool.apply_async(par_loop_month, args=(parii, month_list[parii], 
+                                                   dn_nemo_data, fn_nemo_domain,
+                                               dn_en4, dn_out, nemo_file_suffix,
+                                               en4_file_prefix, n_obs_levels,
+                                               month_season_dict, surface_def,
+                                               bottom_def, dist_crit, run_name,
+                                               regional_masks, region_names,
+                                               depth_bins))
+            parout.append(r)
+        pool.close()
+        pool.join()
         
-        # Define a log file to output progress
-        print(' *Profile analysis starting.*')
+        results = [p.get() for p in parout]
         
-        # Number of levels in EN4 data
-        n_obs_levels = 400
-        
-        # Define seasons for seasonal averaging/collation
-        month_season_dict = {1:1, 2:1, 3:2, 4:2, 5:2, 6:3,
-                             7:3, 8:3, 9:4, 10:4, 11:4, 12:1}
-        
-        if n_proc > 1:
-            pool = mp.Pool(n_proc)
-            parout = []
-            for parii in range(0, n_months):
-                r = pool.apply_async(par_loop_month, args=(parii, month_list[parii], 
-                                                       dn_nemo_data, fn_nemo_domain,
-                                                   dn_en4, dn_out, nemo_file_suffix,
-                                                   en4_file_prefix, n_obs_levels,
-                                                   month_season_dict, surface_def,
-                                                   bottom_def, dist_crit, run_name,
-                                                   regional_masks, region_names,
-                                                   depth_bins))
-                parout.append(r)
-            pool.close()
-            pool.join()
-            
-            results = [p.get() for p in parout]
-            
-            file_list_sta = np.array([p[1] for p in results if p is not None])
-            file_list_ext = np.array([p[2] for p in results if p is not None])
-            parii_list = np.array( [p[0] for p in results if p is not None] )
-            sort_ind = np.argsort(parii_list)
-            parii_list = parii_list[sort_ind]
-            file_list_sta = file_list_sta[sort_ind]
-            file_list_ext = file_list_ext[sort_ind]
-        else:
-            file_list_sta = []
-            file_list_ext = []
-            for ii in range(0,n_months):
-                out = par_loop_month(ii, month_list[ii], dn_nemo_data, fn_nemo_domain,
-                                     dn_en4, dn_out, nemo_file_suffix, en4_file_prefix,
-                                     n_obs_levels, month_season_dict, surface_def, 
-                                     bottom_def, dist_crit, run_name, regional_masks,
-                                     region_names, depth_bins)
+        file_list_sta = np.array([p[1] for p in results if p is not None])
+        file_list_ext = np.array([p[2] for p in results if p is not None])
+        parii_list = np.array( [p[0] for p in results if p is not None] )
+        sort_ind = np.argsort(parii_list)
+        parii_list = parii_list[sort_ind]
+        file_list_sta = file_list_sta[sort_ind]
+        file_list_ext = file_list_ext[sort_ind]
+    else:
+        file_list_sta = []
+        file_list_ext = []
+        for ii in range(0,n_months):
+            out = par_loop_month(ii, month_list[ii], dn_nemo_data, fn_nemo_domain,
+                                 dn_en4, dn_out, nemo_file_suffix, en4_file_prefix,
+                                 n_obs_levels, month_season_dict, surface_def, 
+                                 bottom_def, dist_crit, run_name, regional_masks,
+                                 region_names, depth_bins)
+            if out is not None:
                 file_list_sta.append(out[1])
                 file_list_ext.append(out[2])
+    
+    print('CONCATENATING OUTPUT FILES')
+    
+    # # Concatenate monthly output files into one file
+    fn_stats = 'en4_stats_profiles_{0}.nc'.format(run_name)
+    fn_stats = os.path.join(dn_out, fn_stats)
+    all_stats = [xr.open_dataset(ff, chunks={}) for ff in file_list_sta]
+    all_stats = xr.concat(all_stats, dim='profile')
+    write_ds_to_file(all_stats, fn_stats)
+    all_stats.close()
+    
+    for ff in range(0,len(file_list_sta)):
+        os.remove(file_list_sta[ff])
+    
+    fn_ext = 'en4_extracted_profiles_{0}.nc'.format(run_name)
+    fn_ext = os.path.join(dn_out, fn_ext)
+    all_extracted = [xr.open_dataset(ff, chunks={}) for ff in file_list_ext]
+    all_extracted = xr.concat(all_extracted, dim='profile')
+    write_ds_to_file(all_extracted, fn_ext)
+    all_extracted.close()
+    for ff in range(0,len(file_list_ext)):
+        os.remove(file_list_ext[ff])
         
-        print('CONCATENATING OUTPUT FILES')
+    print('DOING REGIONAL ANALYSIS')
+    
+    n_regions = len(regional_masks) + 1
+    n_regions=5
+    
+    n_seasons=5
+    bin_widths = depth_bins[1:] - depth_bins[:-1]
+    ref_depth = depth_bins[:-1] + .5*bin_widths
+    n_ref_depth = len(ref_depth)
+    
+    if n_proc>1:
+        pool = mp.Pool(n_proc)
+        parout = []
+        for rr in range(0, n_regions):
+            for ss in range(0,n_seasons):
+                r = pool.apply_async(par_loop_regional, args=(rr, ss, fn_stats))
+                parout.append(r)
+        pool.close()
+        pool.join()
+    
+        results = [p.get() for p in parout]
+        rr_list = [p[0] for p in results]
+        ss_list = [p[1] for p in results]
+        mean_list = [p[2] for p in results]
+    else:
+        rr_list= []
+        ss_list = []
+        mean_list=[]
+        for rr in range(0,n_regions):
+            for ss in range(0,n_seasons):
+                out = par_loop_regional(rr, ss, fn_stats)
+                rr_list.append(rr)
+                ss_list.append(ss)
+                mean_list.append(out[2])
+                
         
-        # # Concatenate monthly output files into one file
-        fn_stats = 'en4_stats_profiles_{0}.nc'.format(run_name)
-        fn_stats = os.path.join(dn_out, fn_stats)
-        all_stats = [xr.open_dataset(ff, chunks={}) for ff in file_list_sta]
-        all_stats = xr.concat(all_stats, dim='profile')
-        write_ds_to_file(all_stats, fn_stats)
-        all_stats.close()
+    region_names = region_names.copy()
+    region_names.append('whole_domain')
+    
+    regional_stats = xr.Dataset(coords = dict(
+                                    region = ('region', region_names),
+                                    bin_depth = ('bin_depth', ref_depth)),
+                                data_vars = dict(
+                                    prof_error_tem = (['region','season','bin_depth'], np.zeros((n_regions, n_seasons, n_ref_depth))*np.nan),
+                                    prof_error_sal = (['region','season','bin_depth'], np.zeros((n_regions, n_seasons, n_ref_depth))*np.nan),
+                                    prof_mean_mod_tem = (['region','season','bin_depth'], np.zeros((n_regions, n_seasons, n_ref_depth))*np.nan),
+                                    prof_mean_mod_sal = (['region','season','bin_depth'], np.zeros((n_regions, n_seasons, n_ref_depth))*np.nan),
+                                    prof_mean_obs_tem = (['region','season','bin_depth'], np.zeros((n_regions, n_seasons, n_ref_depth))*np.nan),
+                                    prof_mean_obs_sal = (['region','season','bin_depth'], np.zeros((n_regions, n_seasons, n_ref_depth))*np.nan)))
+    
+    n_out = len(rr_list)
+    for ii in range(0,n_out):
+        rr = rr_list[ii]
+        ss = ss_list[ii]
+        mn = mean_list[ii]
+        if mn is None:
+            continue
+        regional_stats.prof_error_tem[rr,ss] = mn.error_tem_binned
+        regional_stats.prof_error_sal[rr,ss] = mn.error_sal_binned
+        regional_stats.prof_mean_mod_tem[rr,ss] = mn.mod_tem_binned
+        regional_stats.prof_mean_mod_sal[rr,ss] = mn.mod_sal_binned
+        regional_stats.prof_mean_obs_tem[rr,ss] = mn.obs_tem_binned
+        regional_stats.prof_mean_obs_sal[rr,ss] = mn.obs_sal_binned
         
-        for ff in range(0,len(file_list_sta)):
-            os.remove(file_list_sta[ff])
-        
-        fn_ext = 'en4_extracted_profiles_{0}.nc'.format(run_name)
-        fn_ext = os.path.join(dn_out, fn_ext)
-        all_extracted = [xr.open_dataset(ff, chunks={}) for ff in file_list_ext]
-        all_extracted = xr.concat(all_extracted, dim='profile')
-        write_ds_to_file(all_extracted, fn_ext)
-        all_extracted.close()
-        for ff in range(0,len(file_list_ext)):
-            os.remove(file_list_ext[ff])
-            
-        print('DOING REGIONAL ANALYSIS')
-        
-        n_regions = len(regional_masks) + 1
-        n_regions=5
-        
-        n_seasons=5
-        bin_widths = depth_bins[1:] - depth_bins[:-1]
-        ref_depth = depth_bins[:-1] + .5*bin_widths
-        n_ref_depth = len(ref_depth)
-        
-        if n_proc>1:
-            pool = mp.Pool(n_proc)
-            parout = []
-            for rr in range(0, n_regions):
-                for ss in range(0,n_seasons):
-                    r = pool.apply_async(par_loop_regional, args=(rr, ss, fn_stats))
-                    parout.append(r)
-            pool.close()
-            pool.join()
-        
-            results = [p.get() for p in parout]
-            rr_list = [p[0] for p in results]
-            ss_list = [p[1] for p in results]
-            mean_list = [p[2] for p in results]
-        else:
-            rr_list= []
-            ss_list = []
-            mean_list=[]
-            for rr in range(0,n_regions):
-                for ss in range(0,n_seasons):
-                    out = par_loop_regional(rr, ss, fn_stats)
-                    rr_list.append(rr)
-                    ss_list.append(ss)
-                    mean_list.append(out[2])
-                    
-            
-        region_names = region_names.copy()
-        region_names.append('whole_domain')
-        
-        regional_stats = xr.Dataset(coords = dict(
-                                        region = ('region', region_names),
-                                        bin_depth = ('bin_depth', ref_depth)),
-                                    data_vars = dict(
-                                        prof_error_tem = (['region','season','bin_depth'], np.zeros((n_regions, n_seasons, n_ref_depth))*np.nan),
-                                        prof_error_sal = (['region','season','bin_depth'], np.zeros((n_regions, n_seasons, n_ref_depth))*np.nan),
-                                        prof_mean_mod_tem = (['region','season','bin_depth'], np.zeros((n_regions, n_seasons, n_ref_depth))*np.nan),
-                                        prof_mean_mod_sal = (['region','season','bin_depth'], np.zeros((n_regions, n_seasons, n_ref_depth))*np.nan),
-                                        prof_mean_obs_tem = (['region','season','bin_depth'], np.zeros((n_regions, n_seasons, n_ref_depth))*np.nan),
-                                        prof_mean_obs_sal = (['region','season','bin_depth'], np.zeros((n_regions, n_seasons, n_ref_depth))*np.nan)))
-        
-        n_out = len(rr_list)
-        for ii in range(0,n_out):
-            rr = rr_list[ii]
-            ss = ss_list[ii]
-            mn = mean_list[ii]
-            if mn is None:
-                continue
-            regional_stats.prof_error_tem[rr,ss] = mn.error_tem_binned
-            regional_stats.prof_error_sal[rr,ss] = mn.error_sal_binned
-            regional_stats.prof_mean_mod_tem[rr,ss] = mn.mod_tem_binned
-            regional_stats.prof_mean_mod_sal[rr,ss] = mn.mod_sal_binned
-            regional_stats.prof_mean_obs_tem[rr,ss] = mn.obs_tem_binned
-            regional_stats.prof_mean_obs_sal[rr,ss] = mn.obs_sal_binned
-            
-        fn_region = 'en4_regional_stats_{0}.nc'.format(run_name)
-        fn_region = os.path.join(dn_out, fn_region)
-        write_ds_to_file(regional_stats, fn_region)
+    fn_region = 'en4_regional_stats_{0}.nc'.format(run_name)
+    fn_region = os.path.join(dn_out, fn_region)
+    write_ds_to_file(regional_stats, fn_region)
 
 
 class en4_stats_radius_means():
