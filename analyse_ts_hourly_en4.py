@@ -28,7 +28,7 @@ def write_ds_to_file(ds, fn, **kwargs):
 class analyse_ts_hourly_en4():
     
     def __init__(self, fn_nemo_data, fn_nemo_domain, fn_en4, fn_out, 
-                 surface_def=5, bottom_def=10,
+                 surface_def=2, bottom_def=10,
                  regional_masks=[], region_names=[], 
                  nemo_chunks={'time_counter':50}):
         
@@ -68,7 +68,7 @@ class analyse_ts_hourly_en4():
         # Estimate EN4 SST as mean of top levels
         surface_ind = en4.dataset.depth > surface_def
         
-        sst_en4 = en4.dataset.temperature.where(surface_ind, np.nan)
+        sst_en4 = en4.dataset.potential_temperature.where(surface_ind, np.nan)
         sss_en4 = en4.dataset.practical_salinity.where(surface_ind, np.nan)
         
         sst_en4 = sst_en4.mean(dim="z_dim", skipna=True)
@@ -195,6 +195,8 @@ class analyse_ts_hourly_en4():
                             time = ("profile", sst_en4.time.values),
                             season_ind = ("profile", en4_season)),
                         data_vars = dict(
+                            obs_sst = ('profile', sst_en4.values),
+                            obs_sss = ('profile', sss_en4.values),
                             sst_err = ("profile", sst_e),
                             sss_err = ("profile", sss_e),
                             sst_abs_err = ("profile", sst_ae),
@@ -206,12 +208,15 @@ class analyse_ts_hourly_en4():
                             sst_crps6 = ("profile", crps_tem_6),
                             sss_crps6 = ("profile", crps_sal_6)))
         
+        season_names = ['All','DJF','MAM','JJA','SON']
+        
         ds_mean = xr.Dataset(coords = dict(
                             longitude = ("profile", sst_en4.longitude.values),
                             latitude = ("profile", sst_en4.latitude.values),
                             time = ("profile", sst_en4.time.values),
                             season_ind = ("profile", en4_season),
-                            region_names = ('region', region_names)),
+                            region_names = ('region', region_names),
+                            season = ('season', season_names)),
                         data_vars = dict(
                             sst_me = (["region", "season"], reg_array.copy()),
                             sss_me = (["region", "season"], reg_array.copy()),
