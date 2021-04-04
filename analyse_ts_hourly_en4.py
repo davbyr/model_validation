@@ -30,11 +30,17 @@ class analyse_ts_hourly_en4():
     def __init__(self, fn_nemo_data, fn_nemo_domain, fn_en4, fn_out, 
                  surface_def=2, bottom_def=10,
                  regional_masks=[], region_names=[], 
-                 nemo_chunks={'time_counter':50}):
+                 nemo_chunks={'time_counter':50},
+                 bathymetry = None):
         
         nemo = coast.NEMO(fn_nemo_data, fn_nemo_domain, multiple=True, chunks=nemo_chunks)
         nemo_mask = nemo.dataset.bottom_level == 0
         nemo.dataset = nemo.dataset.rename({'t_dim':'time'})
+        if bathymetry is not None:
+            nemo.dataset = nemo.dataset[['votemper_top','vosaline_top',
+                                         'votemper_bot','vosaline_bot']]
+        else:
+            nemo.dataset = nemo.dataset[['votemper_top','vosaline_top']]
         
         print('a')
         
@@ -66,6 +72,11 @@ class analyse_ts_hourly_en4():
         time_ind = np.logical_and(time_ind0, time_ind1)
         en4 = en4.isel(profile=time_ind)
         
+        # Get model indices
+        en4_time = pd.to_datetime(en4.dataset.time.values)
+        ind2D = gu.nearest_indices_2D(nemo.dataset.longitude, nemo.dataset.latitude, 
+                                      en4.dataset.longitude, en4.dataset.latitude,
+                                      mask=nemo_mask)
         
         # Estimate EN4 SST as mean of top levels
         surface_ind = en4.dataset.depth <= surface_def
@@ -73,20 +84,21 @@ class analyse_ts_hourly_en4():
         sst_en4 = en4.dataset.potential_temperature.where(surface_ind, np.nan)
         sss_en4 = en4.dataset.practical_salinity.where(surface_ind, np.nan)
         
-        sst_en4 = sst_en4.mean(dim="z_dim", skipna=True)
-        sss_en4 = sss_en4.mean(dim="z_dim", skipna=True)
-        
-        print('c')
-        
-        sst_en4.load()
-        sss_en4.load()
-        en4_time = pd.to_datetime(sst_en4.time.values)
-        
-        ind2D = gu.nearest_indices_2D(nemo.dataset.longitude, nemo.dataset.latitude, 
-                                      en4.dataset.longitude, en4.dataset.latitude,
-                                      mask=nemo_mask)
+        sst_en4 = sst_en4.mean(dim="z_dim", skipna=True).load()
+        sss_en4 = sss_en4.mean(dim="z_dim", skipna=True).load()
         
         print('d')
+        
+        # Bottom values
+        if bathymetry is not None:
+            bathy_pts = bathymetry.isel(x_dim = ind2D[0], y_dim = ind2D[1]).swap_dims({'dim_0':'profile'})
+            bottom_ind = en4.dataset.depth >= (bathy_pts - bottom_def)
+
+            sbt_en4 = en4.dataset.potential_temperature.where(bottom_ind, np.nan)
+            sbs_en4 = en4.dataset.practical_salinity.where(bottom_ind, np.nan)
+        
+            sbt_en4 = sbt_en4.mean(dim="z_dim", skipna=True).load()
+            sbs_en4 = sbs_en4.mean(dim="z_dim", skipna=True).load()
         
         # For every EN4 profile, determine the nearest model time index
         # If more than t_crit away from nearest, then discard it
@@ -101,8 +113,10 @@ class analyse_ts_hourly_en4():
         crps_tem_6 = np.zeros(n_prof)*np.nan
         crps_sal_6 = np.zeros(n_prof)*np.nan
         
+        sbt_e = np.zeros(n_prof)*np.nan
+        sbs_e = np.zeros(n_prof)*np.nan
+        
         # CRPS
-        nemo.dataset = nemo.dataset[['votemper_top','vosaline_top']]
         
         x_dim_len = nemo.dataset.dims['x_dim']
         y_dim_len = nemo.dataset.dims['y_dim']
@@ -120,7 +134,6 @@ class analyse_ts_hourly_en4():
         
         for tii in range(0, n_nemo_time):
             
-            print(tii)
             tmp = nemo.isel(time = tii).dataset
             time_diff = np.abs( nemo_time[tii] - en4_time ).astype('timedelta64[m]')
             use_ind = np.where( time_diff.astype(int) < 30 )[0]
@@ -155,6 +168,12 @@ class analyse_ts_hourly_en4():
                 sst_e[use_ind] = tmp_pts.votemper_top.values - sst_en4_tmp
                 sss_e[use_ind] = tmp_pts.vosaline_top.values - sss_en4_tmp
                 
+                if bathymetry is not None:
+                    sbt_en4_tmp = sbt_en4.values[use_ind]
+                    sbs_en4_tmp = sbs_en4.values[use_ind]
+                    sbt_e[use_ind] = tmp_pts.votemper_bot.values - sbt_en4_tmp
+                    sbs_e[use_ind] = tmp_pts.vosaline_bot.values - sbs_en4_tmp
+                
                 nh_x = [np.arange( x_tmp[ii]-2, x_tmp[ii]+3 ) for ii in range(0,n_use)] 
                 nh_y = [np.arange( y_tmp[ii]-2, y_tmp[ii]+3 ) for ii in range(0,n_use)]   
                 nh = [tmp.isel(x_dim = nh_x[ii], y_dim = nh_y[ii]) for ii in range(0,n_use)] 
@@ -182,6 +201,8 @@ class analyse_ts_hourly_en4():
                 
         sst_ae = np.abs(sst_e)
         sss_ae = np.abs(sss_e)
+        sbt_ae = np.abs(sbt_e)
+        sbs_ae = np.abs(sbs_e)
         print('Profile analysis done')
         # Put everything into xarray dataset
         en4_season = get_season_index(sst_en4.time.values)
@@ -220,8 +241,8 @@ class analyse_ts_hourly_en4():
                             region_names = ('region', region_names),
                             season = ('season', season_names)),
                         data_vars = dict(
-                            sst_me = (["region", "season"], reg_array.copy()),
-                            sss_me = (["region", "season"], reg_array.copy()),
+                            sst_me = (["region", "season"],  reg_array.copy()),
+                            sss_me = (["region", "season"],  reg_array.copy()),
                             sst_mae = (["region", "season"], reg_array.copy()),
                             sss_mae = (["region", "season"], reg_array.copy()),
                             sst_crps2_mean = (["region", "season"], reg_array.copy()),
@@ -231,15 +252,29 @@ class analyse_ts_hourly_en4():
                             sst_crps6_mean = (["region", "season"], reg_array.copy()),
                             sss_crps6_mean = (["region", "season"], reg_array.copy())))
         
+        if bathymetry is not None:
+            ds_mean['sbt_me'] = (['region','season'], reg_array.copy())
+            ds_mean['sbs_me'] = (['region','season'], reg_array.copy())
+            ds_mean['sbt_mae'] = (['region','season'], reg_array.copy())
+            ds_mean['sbs_mae'] = (['region','season'], reg_array.copy())
+                            
+            ds['obs_sbt'] = (['profile'], sbt_en4.values)
+            ds['obs_sbs'] = (['profile'], sbs_en4.values)
+            ds['sbt_err'] = (['profile'], sbt_e)
+            ds['sbs_err'] = (['profile'], sbs_e)
+            ds['sbt_abs_err'] = (['profile'], sbt_ae)
+            ds['sbs_abs_err'] = (['profile'], sbs_ae)
+                                              
+        
         
         for reg in range(0,n_regions):
             reg_ind = np.where( is_in_region[reg].astype(bool) )[0]
             ds_reg = ds.isel(profile = reg_ind)
             ds_reg_group = ds_reg.groupby('time.season')
-            ds_reg_mean = ds_reg_group.mean(skipna=True)
-            #ds_reg_std = ds_reg_group.std(skipna=True)
-            ds_mean['sst_me'][reg, 1:] = ds_reg_mean.sst_err.values
-            ds_mean['sss_me'][reg, 1:] = ds_reg_mean.sss_err.values
+            ds_reg_mean = ds_reg_group.mean(skipna=True).compute()
+            
+            ds_mean['sst_me'][reg, 1:]  = ds_reg_mean.sst_err.values
+            ds_mean['sss_me'][reg, 1:]  = ds_reg_mean.sss_err.values
             ds_mean['sst_mae'][reg, 1:] = ds_reg_mean.sst_abs_err.values
             ds_mean['sss_mae'][reg, 1:] = ds_reg_mean.sss_abs_err.values
             ds_mean['sst_crps2_mean'][reg, 1:] = ds_reg_mean.sst_crps2.values
@@ -248,6 +283,31 @@ class analyse_ts_hourly_en4():
             ds_mean['sss_crps4_mean'][reg, 1:] = ds_reg_mean.sss_crps4.values
             ds_mean['sst_crps6_mean'][reg, 1:] = ds_reg_mean.sst_crps6.values
             ds_mean['sss_crps6_mean'][reg, 1:] = ds_reg_mean.sss_crps6.values
+            
+            if bathymetry is not None:
+                ds_mean['sbt_me'][reg, 1:]  = ds_reg_mean.sbt_err.values
+                ds_mean['sbs_me'][reg, 1:]  = ds_reg_mean.sbs_err.values
+                ds_mean['sbt_mae'][reg, 1:] = ds_reg_mean.sbt_abs_err.values
+                ds_mean['sbs_mae'][reg, 1:] = ds_reg_mean.sbs_abs_err.values
+            
+            ds_reg_mean = ds_reg.mean(dim='profile', skipna=True).compute()
+            ds_mean['sst_me'][reg, 0]  = ds_reg_mean.sst_err.values
+            ds_mean['sss_me'][reg, 0]  = ds_reg_mean.sss_err.values
+            ds_mean['sst_mae'][reg, 0] = ds_reg_mean.sst_abs_err.values
+            ds_mean['sss_mae'][reg, 0] = ds_reg_mean.sss_abs_err.values
+            ds_mean['sst_crps2_mean'][reg, 0] = ds_reg_mean.sst_crps2.values
+            ds_mean['sss_crps2_mean'][reg, 0] = ds_reg_mean.sss_crps2.values
+            ds_mean['sst_crps4_mean'][reg, 0] = ds_reg_mean.sst_crps4.values
+            ds_mean['sss_crps4_mean'][reg, 0] = ds_reg_mean.sss_crps4.values
+            ds_mean['sst_crps6_mean'][reg, 0] = ds_reg_mean.sst_crps6.values
+            ds_mean['sss_crps6_mean'][reg, 0] = ds_reg_mean.sss_crps6.values
+            
+            if bathymetry is not None:
+                ds_mean['sbt_me'][reg, 0]  = ds_reg_mean.sbt_err.values
+                ds_mean['sbs_me'][reg, 0]  = ds_reg_mean.sbs_err.values
+                ds_mean['sbt_mae'][reg, 0] = ds_reg_mean.sbt_abs_err.values
+                ds_mean['sbs_mae'][reg, 0] = ds_reg_mean.sbs_abs_err.values
+                
             
         ds_out = xr.merge((ds, ds_mean))
         ds_out['is_in_region'] = (['region','profile'], is_in_region)
