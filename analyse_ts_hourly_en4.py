@@ -55,6 +55,8 @@ class analyse_ts_hourly_en4():
         
         # Get obs time slice
         n_nemo_time = nemo.dataset.dims['time']
+        nemo.dataset.time.load()
+        en4.dataset.time.load()
         nemo_time = pd.to_datetime(nemo.dataset.time.values)
         en4_time = pd.to_datetime(en4.dataset.time.values)
         time_max = max(nemo_time) + timedelta(hours=1)
@@ -66,7 +68,7 @@ class analyse_ts_hourly_en4():
         
         
         # Estimate EN4 SST as mean of top levels
-        surface_ind = en4.dataset.depth > surface_def
+        surface_ind = en4.dataset.depth <= surface_def
         
         sst_en4 = en4.dataset.potential_temperature.where(surface_ind, np.nan)
         sss_en4 = en4.dataset.practical_salinity.where(surface_ind, np.nan)
