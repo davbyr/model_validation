@@ -30,7 +30,7 @@ class analyse_ts_hourly_en4():
     def __init__(self, fn_nemo_data, fn_nemo_domain, fn_en4, fn_out, 
                  surface_def=2, bottom_def=10,
                  regional_masks=[], region_names=[], 
-                 nemo_chunks={'time_counter':50},
+                 nemo_chunks={'time_counter':1},
                  bathymetry = None):
         
         print('0', flush=True)
@@ -140,7 +140,7 @@ class analyse_ts_hourly_en4():
         
         for tii in range(0, n_nemo_time):
             
-            print(tii)
+            print(tii, flush=True)
             
             tmp = nemo.isel(time = tii).dataset
             time_diff = np.abs( nemo_time[tii] - en4_time ).astype('timedelta64[m]')
@@ -211,7 +211,7 @@ class analyse_ts_hourly_en4():
         sss_ae = np.abs(sss_e)
         sbt_ae = np.abs(sbt_e)
         sbs_ae = np.abs(sbs_e)
-        print('Profile analysis done')
+        print('Profile analysis done', flush=True)
         # Put everything into xarray dataset
         en4_season = get_season_index(sst_en4.time.values)
         
@@ -240,6 +240,7 @@ class analyse_ts_hourly_en4():
                             sss_crps6 = ("profile", crps_sal_6)))
         
         season_names = ['All','DJF','MAM','JJA','SON']
+        ds = ds.chunk({'profile':10000})
         
         ds_mean = xr.Dataset(coords = dict(
                             longitude = ("profile", sst_en4.longitude.values),
