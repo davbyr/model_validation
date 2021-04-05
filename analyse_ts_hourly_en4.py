@@ -144,7 +144,7 @@ class analyse_ts_hourly_en4():
         
         for tii in range(0, n_nemo_time):
             
-            print(tii, flush=True)
+            print(nemo_time[tii], flush=True)
             
             time_diff = np.abs( nemo_time[tii] - en4_time ).astype('timedelta64[m]')
             use_ind = np.where( time_diff.astype(int) < 30 )[0]
