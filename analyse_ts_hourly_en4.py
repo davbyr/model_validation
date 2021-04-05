@@ -33,6 +33,8 @@ class analyse_ts_hourly_en4():
                  nemo_chunks={'time_counter':50},
                  bathymetry = None):
         
+        print('0', flush=True)
+        
         nemo = coast.NEMO(fn_nemo_data, fn_nemo_domain, multiple=True, chunks=nemo_chunks)
         nemo_mask = nemo.dataset.bottom_level == 0
         nemo.dataset = nemo.dataset.rename({'t_dim':'time'})
@@ -42,7 +44,7 @@ class analyse_ts_hourly_en4():
         else:
             nemo.dataset = nemo.dataset[['votemper_top','vosaline_top']]
         
-        print('a')
+        print('a', flush=True)
         
         en4 = coast.PROFILE()
         en4.read_EN4(fn_en4, multiple=True)
@@ -57,7 +59,7 @@ class analyse_ts_hourly_en4():
                                                             lonmin, lonmax, 
                                                             latmin, latmax)[0]
         en4 = en4.isel(profile=ind)
-        print('b')
+        print('b', flush=True)
         
         # Get obs time slice
         n_nemo_time = nemo.dataset.dims['time']
@@ -78,6 +80,8 @@ class analyse_ts_hourly_en4():
                                       en4.dataset.longitude, en4.dataset.latitude,
                                       mask=nemo_mask)
         
+        print('c', flush=True)
+        
         # Estimate EN4 SST as mean of top levels
         surface_ind = en4.dataset.depth <= surface_def
         
@@ -87,7 +91,7 @@ class analyse_ts_hourly_en4():
         sst_en4 = sst_en4.mean(dim="z_dim", skipna=True).load()
         sss_en4 = sss_en4.mean(dim="z_dim", skipna=True).load()
         
-        print('d')
+        print('d', flush=True)
         
         # Bottom values
         if bathymetry is not None:
@@ -99,6 +103,8 @@ class analyse_ts_hourly_en4():
         
             sbt_en4 = sbt_en4.mean(dim="z_dim", skipna=True).load()
             sbs_en4 = sbs_en4.mean(dim="z_dim", skipna=True).load()
+        
+        print('e', flush=True)
         
         # For every EN4 profile, determine the nearest model time index
         # If more than t_crit away from nearest, then discard it
@@ -133,6 +139,8 @@ class analyse_ts_hourly_en4():
         print('Starting analysis')
         
         for tii in range(0, n_nemo_time):
+            
+            print(tii)
             
             tmp = nemo.isel(time = tii).dataset
             time_diff = np.abs( nemo_time[tii] - en4_time ).astype('timedelta64[m]')
