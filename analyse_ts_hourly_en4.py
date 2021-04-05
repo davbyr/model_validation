@@ -112,6 +112,8 @@ class analyse_ts_hourly_en4():
         
         sst_e = np.zeros(n_prof)*np.nan
         sss_e = np.zeros(n_prof)*np.nan
+        sst_ae = np.zeros(n_prof)*np.nan
+        sss_ae = np.zeros(n_prof)*np.nan
         crps_tem_2 = np.zeros(n_prof)*np.nan
         crps_sal_2 = np.zeros(n_prof)*np.nan
         crps_tem_4 = np.zeros(n_prof)*np.nan
@@ -119,6 +121,8 @@ class analyse_ts_hourly_en4():
         crps_tem_6 = np.zeros(n_prof)*np.nan
         crps_sal_6 = np.zeros(n_prof)*np.nan
         
+        sbt_e = np.zeros(n_prof)*np.nan
+        sbs_e = np.zeros(n_prof)*np.nan
         sbt_e = np.zeros(n_prof)*np.nan
         sbs_e = np.zeros(n_prof)*np.nan
         
@@ -140,7 +144,7 @@ class analyse_ts_hourly_en4():
         
         for tii in range(0, n_nemo_time):
             
-            print(tii)
+            print(tii, flush=True)
             
             time_diff = np.abs( nemo_time[tii] - en4_time ).astype('timedelta64[m]')
             use_ind = np.where( time_diff.astype(int) < 30 )[0]
