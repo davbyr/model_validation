@@ -30,7 +30,7 @@ class analyse_ts_hourly_en4():
     def __init__(self, fn_nemo_data, fn_nemo_domain, fn_en4, fn_out, 
                  surface_def=2, bottom_def=10,
                  regional_masks=[], region_names=[], 
-                 nemo_chunks={'time_counter':1},
+                 nemo_chunks={'time_counter':50},
                  bathymetry = None):
         
         print('0', flush=True)
@@ -140,15 +140,15 @@ class analyse_ts_hourly_en4():
         
         for tii in range(0, n_nemo_time):
             
-            print(tii, flush=True)
+            print(tii)
             
-            tmp = nemo.isel(time = tii).dataset
             time_diff = np.abs( nemo_time[tii] - en4_time ).astype('timedelta64[m]')
             use_ind = np.where( time_diff.astype(int) < 30 )[0]
             n_use = len(use_ind)
             
             if n_use>0:
                 
+                tmp = nemo.isel(time = tii).dataset
                 tmp.load()
                 x_tmp = ind2D[0][use_ind]
                 y_tmp = ind2D[1][use_ind]
@@ -206,12 +206,11 @@ class analyse_ts_hourly_en4():
                 crps_tem_6[use_ind] = crps_tem_tmp
                 crps_sal_6[use_ind] = crps_sal_tmp
                     
-                
+        print('Profile analysis done', flush=True)
         sst_ae = np.abs(sst_e)
         sss_ae = np.abs(sss_e)
         sbt_ae = np.abs(sbt_e)
         sbs_ae = np.abs(sbs_e)
-        print('Profile analysis done', flush=True)
         # Put everything into xarray dataset
         en4_season = get_season_index(sst_en4.time.values)
         
