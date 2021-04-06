@@ -130,7 +130,7 @@ class analyse_ssh_hourly():
     def __init__(self, fn_nemo_data, fn_nemo_domain, fn_obs, fn_out,
                          thresholds = np.arange(0,2,0.1),
                          constit_to_save = ['M2', 'S2', 'K1','O1'], 
-                         chunks = {'time_counter':50}):
+                         chunks = {'time_counter':100}):
         
         nemo = read_nemo_ssh(fn_nemo_data, fn_nemo_domain, chunks)
         
@@ -145,6 +145,9 @@ class analyse_ssh_hourly():
         #                                           obs, landmask, chunks)
         
         obs = align_timings(nemo_extracted, obs)
+        print('loading', flush=True)
+        nemo_extracted = nemo_extracted.load()
+        print('loaded', flush=True)
         
         # Define Dimension Sizes
         n_port = obs.dims['port']
@@ -334,12 +337,12 @@ class analyse_ssh_hourly():
                 thresh_int_ntr_obs[pp, nn] = np.sum( ntr_obs > threshn)
                 
                 # NTR: MAE and correlations above thresholds
-                ntr_over_ind = np.where( ntr_obs > threshn )
-                ntr_obs_over = ntr_obs[ntr_over_ind]
-                ntr_mod_over = ntr_mod[ntr_over_ind]
-                thresh_ntr_corr[pp,nn] = np.ma.corrcoef(ntr_obs_over, ntr_mod_over)  
-                thresh_ntr_mae[pp,nn] = np.ma.mean( np.abs( ntr_mod_over - ntr_obs_over ))
-                thresh_ntr_me[pp,nn] = np.ma.mean( ntr_mod_over - ntr_obs_over )
+                # ntr_over_ind = np.where( ntr_obs > threshn )[0]
+                # ntr_obs_over = ntr_obs[ntr_over_ind]
+                # ntr_mod_over = ntr_mod[ntr_over_ind]
+                # thresh_ntr_corr[pp,nn] = np.ma.corrcoef(ntr_obs_over, ntr_mod_over)  
+                # thresh_ntr_mae[pp,nn] = np.ma.mean( np.abs( ntr_mod_over - ntr_obs_over ))
+                # thresh_ntr_me[pp,nn] = np.ma.mean( ntr_mod_over - ntr_obs_over )
                 
                 # Skew Surge Threshold Frequency
                 thresh_freq_skew_mod[pp, nn] = np.sum( skew_mod_tmp > threshn)
