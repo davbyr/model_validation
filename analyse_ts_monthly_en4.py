@@ -74,6 +74,8 @@ import scipy.stats as spst
 import xarray.ufuncs as uf
 import matplotlib.pyplot as plt
 import multiprocessing as mp
+from scipy.signal import savgol_filter
+from dask.diagnostics import ProgressBar
  
 def write_ds_to_file(ds, fn, **kwargs):
         if os.path.exists(fn):
@@ -133,6 +135,404 @@ def make_en4_filename(dn, date, prefix):
     yearmonth = str(year) + str(month)
     return os.path.join(dn, prefix + yearmonth + '.nc')
 
+def analyse_ts_regional(fn_nemo_domain, fn_extracted, fn_out, ref_depth,
+                        regional_masks=[], region_names=[]):
+    
+    ds_ext = xr.open_dataset(fn_extracted, chunks={'profile':10000})
+    
+    dom = xr.open_dataset(fn_nemo_domain)
+    bath = dom.hbatt.values.squeeze()
+    dom.close()
+    
+    regional_masks = regional_masks.copy()
+    region_names = region_names.copy()
+    regional_masks.append(np.ones(bath.shape))
+    region_names.append('whole_domain')
+    n_regions = len(regional_masks)
+    n_ref_depth = len(ref_depth)
+    n_profiles = ds_ext.dims['profile']
+    
+    ds = ds_ext[['mod_tem','obs_tem','mod_sal','obs_sal','obs_z']].astype('float32')
+    ds.load()
+    
+    ind2D = coastgu.nearest_indices_2D(dom.glamt.values.squeeze(), dom.gphit.values.squeeze(),
+                                  ds_ext.longitude.values, ds_ext.latitude.values)
+    bathy_pts = bath[ind2D[1], ind2D[0]]
+    is_in_region = [mm[ind2D[1], ind2D[0]] for mm in regional_masks]
+    is_in_region = np.array(is_in_region, dtype=bool)
+    
+    
+    ds_interp = xr.Dataset(coords = dict(
+                               ref_depth = ('ref_depth', ref_depth),
+                               longitude = ('profile', ds.longitude.values),
+                               latitude = ('profile', ds.latitude.values),
+                               time = ('profile', ds.time.values),
+                               region = ('region', region_names)),
+                           data_vars = dict(
+                               bathy = ('profile', bathy_pts),
+                               mod_tem = (['profile','ref_depth'], np.zeros((n_profiles, n_ref_depth), dtype='float32')*np.nan),
+                               mod_sal = (['profile','ref_depth'], np.zeros((n_profiles, n_ref_depth), dtype='float32')*np.nan),
+                               obs_tem = (['profile','ref_depth'], np.zeros((n_profiles, n_ref_depth), dtype='float32')*np.nan),
+                               obs_sal = (['profile','ref_depth'], np.zeros((n_profiles, n_ref_depth), dtype='float32')*np.nan)))
+    
+    
+    for pp in range(0, n_profiles):
+        prof = ds.isel(profile=pp).swap_dims({'level':'obs_z'}).dropna(dim='obs_z')
+        if prof.dims['obs_z']>1:
+            try:
+                print(pp)
+                prof_interp = prof.interp(obs_z = ref_depth)
+                dep_len = prof_interp.dims['obs_z']
+                ds_interp['mod_tem'][pp, :dep_len] = prof_interp.mod_tem.values
+                ds_interp['mod_sal'][pp, :dep_len] = prof_interp.mod_sal.values
+                ds_interp['obs_tem'][pp, :dep_len] = prof_interp.obs_tem.values
+                ds_interp['obs_sal'][pp, :dep_len] = prof_interp.obs_sal.values
+            except:
+                print('{0}^^'.format(pp))
+                ds_interp['bathy'][pp] = np.nan
+        else:
+            print('{0}**'.format(pp))
+            ds_interp['bathy'][pp] = np.nan
+        
+    ds_interp['error_tem'] = (ds_interp.mod_tem - ds_interp.obs_tem).astype('float32')
+    ds_interp['error_sal'] = (ds_interp.mod_sal - ds_interp.obs_sal).astype('float32')
+    
+    ds_reg_prof = xr.Dataset(coords = dict(
+                                           region = ('region',region_names),
+                                           ref_depth = ('ref_depth', ref_depth),
+                                           season = ('season', ['DJF','JJA','MAM','SON','All'])))
+    ds_reg_prof['prof_mod_tem'] = (['region','season','ref_depth'], np.zeros((n_regions, 5, n_ref_depth), dtype='float32')*np.nan)
+    ds_reg_prof['prof_mod_sal'] = (['region','season','ref_depth'], np.zeros((n_regions, 5, n_ref_depth), dtype='float32')*np.nan)
+    ds_reg_prof['prof_obs_tem'] = (['region','season','ref_depth'], np.zeros((n_regions, 5, n_ref_depth), dtype='float32')*np.nan)
+    ds_reg_prof['prof_obs_sal'] = (['region','season','ref_depth'], np.zeros((n_regions, 5, n_ref_depth), dtype='float32')*np.nan)
+    ds_reg_prof['prof_error_tem'] = (['region','season','ref_depth'], np.zeros((n_regions, 5, n_ref_depth), dtype='float32')*np.nan)
+    ds_reg_prof['prof_error_sal'] = (['region','season','ref_depth'], np.zeros((n_regions, 5, n_ref_depth), dtype='float32')*np.nan)
+    ds_reg_prof['mean_bathy'] = (['region','season'], np.zeros((n_regions, 5))*np.nan)
+    
+    season_str_dict = {'DJF':0,'JJA':1,'MAM':2,'SON':3}
+    
+    for reg in range(0,n_regions):
+        reg_ind = np.where( is_in_region[reg].astype(bool) )[0]
+        reg_tmp = ds_interp.isel(profile = reg_ind)
+        reg_tmp_group = reg_tmp.groupby('time.season')
+        reg_tmp_mean = reg_tmp_group.mean(dim='profile', skipna=True).compute()
+        season_str = reg_tmp_mean.season.values
+        season_ind = [season_str_dict[ss] for ss in season_str]
+        
+        ds_reg_prof['prof_mod_tem'][reg, season_ind] = reg_tmp_mean.mod_tem
+        ds_reg_prof['prof_mod_sal'][reg, season_ind] = reg_tmp_mean.mod_sal
+        ds_reg_prof['prof_obs_tem'][reg, season_ind] = reg_tmp_mean.obs_tem
+        ds_reg_prof['prof_obs_sal'][reg, season_ind] = reg_tmp_mean.obs_sal
+        ds_reg_prof['prof_error_tem'][reg, season_ind] = reg_tmp_mean.error_tem
+        ds_reg_prof['prof_error_sal'][reg, season_ind] = reg_tmp_mean.error_sal
+        ds_reg_prof['mean_bathy'][reg, season_ind] = reg_tmp_mean.bathy
+        
+        reg_tmp_mean = reg_tmp.mean(dim='profile', skipna=True).compute()
+        
+        ds_reg_prof['prof_mod_tem'][reg, 4] = reg_tmp_mean.mod_tem
+        ds_reg_prof['prof_mod_sal'][reg, 4] = reg_tmp_mean.mod_sal
+        ds_reg_prof['prof_obs_tem'][reg, 4] = reg_tmp_mean.obs_tem
+        ds_reg_prof['prof_obs_sal'][reg, 4] = reg_tmp_mean.obs_sal
+        ds_reg_prof['prof_error_tem'][reg, 4] = reg_tmp_mean.error_tem
+        ds_reg_prof['prof_error_sal'][reg, 4] = reg_tmp_mean.error_sal
+        ds_reg_prof['mean_bathy'][reg, 4] = reg_tmp_mean.bathy
+    
+    ds_interp = ds_interp.drop('bathy')
+    ds_interp = xr.merge((ds_interp, ds_reg_prof))
+    ds_interp['is_in_region'] = (['region','profile'], is_in_region)
+    write_ds_to_file(ds_interp, fn_out)
+
+def analyse_ts_per_file(fn_nemo_data, fn_nemo_domain, fn_en4, fn_out,  
+                        run_name = 'Undefined', surface_def=5, bottom_def=10, 
+                        dist_crit=5, n_obs_levels=400, 
+                        model_frequency='daily', instant_data=False):
+    
+    # ----------------------------------------------------
+    # READ 1) Read NEMO, then extract desired variables
+    try:   
+        # Read NEMO file
+        nemo = coast.NEMO(fn_nemo_data, fn_nemo_domain, chunks={'time_counter':1})
+        dom = xr.open_dataset(fn_nemo_domain) 
+        nemo.dataset['landmask'] = (('y_dim','x_dim'), nemo.dataset.bottom_level==0)
+        nemo.dataset['bathymetry'] = (('y_dim', 'x_dim'), dom.hbatt[0] )
+        nemo = nemo.dataset[['temperature','salinity', 'e3t','depth_0', 'landmask','bathymetry', 'bottom_level']]
+        nemo = nemo.rename({'temperature':'tem','salinity':'sal'})
+        mod_time = nemo.time.values
+        
+    except:
+        print('       !!!Problem with EN4 Read: {0}'.format(fn_nemo_data))
+        return
+        
+    # ----------------------------------------------------
+    # READ 2) Read EN4, then extract desired variables
+    try:
+        # Read relevant EN4 files
+        en4 = coast.PROFILE()
+        en4.read_EN4(fn_en4, chunks={}, multiple=True)
+        en4 = en4.dataset[['potential_temperature','practical_salinity','depth']]
+        en4 = en4.rename({'practical_salinity':'sal', 'potential_temperature':'tem'})
+    except:        
+        print('       !!!Problem with EN4 Read: {0}'.format(fn_nemo_data))
+        return
+    
+    print('Files read', flush=True)
+    
+    # ----------------------------------------------------
+    # PREPROC 1) Use only observations that are within model domain
+    lonmax = np.nanmax(nemo['longitude'])
+    lonmin = np.nanmin(nemo['longitude'])
+    latmax = np.nanmax(nemo['latitude'])
+    latmin = np.nanmin(nemo['latitude'])
+    ind = coast.general_utils.subset_indices_lonlat_box(en4['longitude'], 
+                                                        en4['latitude'],
+                                                        lonmin, lonmax, 
+                                                        latmin, latmax)[0]
+    en4 = en4.isel(profile=ind)
+    print('EN4 subsetted to model domain', flush=True)
+    
+    # ----------------------------------------------------
+    # PREPROC 2) Use only observations that are within model time window
+    en4_time = en4.time.values
+    time_max = pd.to_datetime( max(mod_time) ) + relativedelta(hours=12)
+    time_min = pd.to_datetime( min(mod_time) ) - relativedelta(hours=12)
+    ind = np.logical_and( en4_time >= time_min, en4_time <= time_max )
+    en4 = en4.isel(profile=ind)
+    en4.load()
+    print('EN4 subsetted to model time', flush=True)
+    
+    # ----------------------------------------------------
+    # PREPROC 3) Get model indices (space and time) corresponding to observations
+    ind2D = coastgu.nearest_indices_2D(nemo['longitude'], nemo['latitude'],
+                                       en4['longitude'], en4['latitude'], 
+                                       mask=nemo.landmask)
+    
+    print('Spatial Indices Calculated', flush=True)
+    en4_time = en4.time.values
+    ind_time = [ np.argmin( np.abs( mod_time - en4_time[tt] ) ) for tt in range(en4.dims['profile'])]
+    min_time = [ np.min( np.abs( mod_time - en4_time[tt] ) ).astype('timedelta64[h]') for tt in range(en4.dims['profile'])]
+    ind_time = xr.DataArray(ind_time)
+    print('Time Indices Calculated', flush=True)
+    
+    mod_profiles = nemo.isel(x_dim=ind2D[0], y_dim=ind2D[1], t_dim=ind_time)
+    mod_profiles = mod_profiles.rename({'dim_0':'profile'})
+    with ProgressBar():
+        mod_profiles.load()
+    print('Model indexed and loaded', flush=True)
+    
+    # Define monthly variable arrays for interpolated data
+    n_mod_levels = mod_profiles.dims['z_dim']
+    n_prof = en4.dims['profile']
+    data = xr.Dataset(coords = dict(
+                          longitude=(["profile"], en4.longitude.values),
+                          latitude=(["profile"], en4.latitude.values),
+                          time=(["profile"], en4.time.values),
+                          level=(['level'], np.arange(0,n_obs_levels)),
+                          ex_longitude = (["profile"], mod_profiles.longitude.values),
+                          ex_latitude = (["profile"], mod_profiles.longitude.values),
+                          ex_time = (["profile"], mod_profiles.time.values),
+                          ex_level = (["ex_level"], np.arange(0, n_mod_levels))),
+                      data_vars = dict(
+                          mod_tem = (['profile','level'], np.zeros((n_prof , n_obs_levels))*np.nan),
+                          obs_tem = (['profile','level'], np.zeros((n_prof , n_obs_levels))*np.nan),
+                          mod_sal = (['profile','level'], np.zeros((n_prof , n_obs_levels))*np.nan),
+                          obs_sal = (['profile','level'], np.zeros((n_prof , n_obs_levels))*np.nan),
+                          mod_rho = (['profile','level'], np.zeros((n_prof , n_obs_levels))*np.nan),
+                          obs_rho = (['profile','level'], np.zeros((n_prof , n_obs_levels))*np.nan),
+                          mod_s0 = (['profile', 'level'], np.zeros((n_prof , n_obs_levels))*np.nan),
+                          obs_s0 = (['profile', 'level'], np.zeros((n_prof , n_obs_levels))*np.nan),
+                          mask_tem = (['profile','level'], np.zeros((n_prof , n_obs_levels))*np.nan),
+                          mask_sal = (['profile','level'], np.zeros((n_prof , n_obs_levels))*np.nan),
+                          mask_rho = (['profile','level'], np.zeros((n_prof , n_obs_levels))*np.nan),
+                          obs_z = (['profile','level'], np.zeros((n_prof , n_obs_levels))*np.nan),
+                          ex_mod_tem = (["profile", "ex_level"], mod_profiles.tem.values),
+                          ex_mod_sal = (["profile", "ex_level"], mod_profiles.sal.values),
+                          ex_depth = (["profile", "ex_level"], mod_profiles.depth_0.values.T)))
+    
+    
+
+    bad_flag = np.zeros(n_prof).astype(bool)
+    
+    for prof in range(0,n_prof):
+        print(prof)
+        # Select the current profile
+        mod_profile = mod_profiles.isel(profile = prof)
+        obs_profile = en4.isel(profile = prof)
+        
+        # If the nearest neighbour interpolation is bad, then skip the 
+        # vertical interpolation -> keep profile as nans in monthly array
+        if all(np.isnan(mod_profile.tem)):
+            bad_flag[prof] = True
+            continue
+        
+        # Check that model point is within threshold distance of obs
+        # If not, skip vertical interpolation -> keep profile as nans
+        interp_dist = coastgu.calculate_haversine_distance(
+                                             obs_profile.longitude, 
+                                             obs_profile.latitude, 
+                                             mod_profile.longitude, 
+                                             mod_profile.latitude)
+        if interp_dist > dist_crit:
+            bad_flag[prof] = True
+            continue
+        
+        # Use bottom_level to mask dry depths
+        bl = mod_profile.bottom_level.squeeze().values
+        mod_profile = mod_profile.isel(z_dim=range(0,bl))
+        
+        #
+        # Interpolate model to obs depths using a linear interp
+        #
+        obs_profile = obs_profile.rename({'z_dim':'depth'})
+        obs_profile = obs_profile.set_coords('depth')
+        mod_profile = mod_profile.rename({'z_dim':'depth_0'})
+        
+        # If interpolation fails for some reason, skip to next iteration
+        try:
+            mod_profile_int = mod_profile.interp(depth_0 = obs_profile.depth.values)
+        except:
+            bad_flag[prof] = True
+            continue
+        
+        # ----------------------------------------------------
+        # Analysis 2) Calculate Density per Profile using GSW
+        
+        # Calculate Density
+        ap_obs = gsw.p_from_z( -obs_profile.depth, obs_profile.latitude )
+        ap_mod = gsw.p_from_z( -obs_profile.depth, mod_profile_int.latitude )
+        # Absolute Salinity            
+        sa_obs = gsw.SA_from_SP( obs_profile.sal, ap_obs, 
+                                obs_profile.longitude, 
+                                obs_profile.latitude )
+        sa_mod = gsw.SA_from_SP( mod_profile_int.sal, ap_mod, 
+                                mod_profile_int.longitude, 
+                                mod_profile_int.latitude )
+        # Conservative Temperature
+        ct_obs = gsw.CT_from_pt( sa_obs, obs_profile.tem ) 
+        ct_mod = gsw.CT_from_pt( sa_mod, mod_profile_int.tem ) 
+        
+        # In-situ density
+        obs_rho = gsw.rho( sa_obs, ct_obs, ap_obs )
+        mod_rho = gsw.rho( sa_mod, ct_mod, ap_mod ) 
+        
+        # Potential Density
+        obs_s0 = gsw.sigma0(sa_obs, ct_obs)
+        mod_s0 = gsw.sigma0(sa_mod, ct_mod)
+        
+        # Assign to main array
+        data['mod_tem'][prof] = mod_profile_int.tem.values
+        data['obs_tem'][prof] = obs_profile.tem.values
+        data['mod_sal'][prof] = mod_profile_int.sal.values
+        data['obs_sal'][prof] = obs_profile.sal.values
+        data['mod_rho'][prof] = mod_rho
+        data['obs_rho'][prof] = obs_rho
+        data['mod_s0'][prof] = mod_s0
+        data['obs_s0'][prof] = obs_s0
+        data['obs_z'][prof] = obs_profile.depth
+        
+    print('       Interpolated Profiles.', flush=True)
+    
+    # Define seasons
+    month_season_dict = {1:1, 2:1, 3:2, 4:2, 5:2, 6:3,
+                         7:3, 8:3, 9:4, 10:4, 11:4, 12:1}
+    pd_time = pd.to_datetime(data.time.values)
+    pd_month = pd_time.month
+    season_save = [month_season_dict[ii] for ii in pd_month]
+    
+    data['season'] = ('profile', season_save)
+    data.attrs['run_name'] = run_name
+    data['bad_flag'] = ('profile', bad_flag)
+    
+    # ----------------------------------------------------
+    # Analysis 3) All Anomalies
+    # Errors at all depths
+    data["error_tem"] = (['profile','level'], data.mod_tem - data.obs_tem)
+    data["error_sal"] = (['profile','level'], data.mod_sal - data.obs_sal)
+    
+    # Absolute errors at all depths
+    data["abs_error_tem"] = (['profile','level'], np.abs(data.error_tem))
+    data["abs_error_sal"] = (['profile','level'], np.abs(data.error_sal))
+    
+    # ----------------------------------------------------
+    # Analysis 7) Whole profile stats
+    # Mean errors across depths
+    data['me_tem'] = ('profile', np.nanmean(data.error_tem, axis=1))
+    data['me_sal'] = ('profile', np.nanmean(data.error_sal, axis=1))
+    
+    # Mean absolute errors across depths
+    data['mae_tem'] = (['profile'], np.nanmean(data.abs_error_tem, axis=1))
+    data['mae_sal'] = (['profile'], np.nanmean(data.abs_error_tem, axis=1))
+    
+    # ----------------------------------------------------
+    # Analysis 4) Surface stats
+    # Get indices corresponding to surface depth
+    # Get averages over surface depths
+    data.attrs['surface_definition'] = surface_def
+    surface_ind = data.obs_z.values <= surface_def
+    
+    mod_sal = np.array(data.mod_sal)
+    mod_tem = np.array(data.mod_tem)
+    obs_sal = np.array(data.obs_sal)
+    obs_tem = np.array(data.obs_tem)
+
+    mod_sal[~surface_ind] = np.nan
+    mod_tem[~surface_ind] = np.nan
+    obs_sal[~surface_ind] = np.nan
+    obs_tem[~surface_ind] = np.nan
+        
+    # Average over surfacedepths
+    mod_surf_tem = np.nanmean(mod_tem, axis=1)
+    mod_surf_sal = np.nanmean(mod_sal, axis=1)
+    obs_surf_tem = np.nanmean(obs_tem, axis=1)
+    obs_surf_sal = np.nanmean(obs_sal, axis=1)
+ 
+    # Assign to output arrays
+    surf_error_tem =  mod_surf_tem - obs_surf_tem
+    surf_error_sal =  mod_surf_sal - obs_surf_sal
+    
+    data['surf_error_tem'] = (['profile'], surf_error_tem)
+    data['surf_error_sal'] = (['profile'], surf_error_sal)
+    
+    # ----------------------------------------------------
+    # Analysis 5) Bottom stats
+    # Estimate ocean depth as sum of e3t
+    data['bottom_definition'] = bottom_def
+    prof_bathy = mod_profiles.bathymetry
+    percent_depth = bottom_def
+    # Get indices of bottom depths
+    bott_ind = data.obs_z.values >= (prof_bathy - percent_depth).values[:,None]
+    
+    mod_sal = np.array(data.mod_sal)
+    mod_tem = np.array(data.mod_tem)
+    obs_sal = np.array(data.obs_sal)
+    obs_tem = np.array(data.obs_tem)
+    
+    mod_sal[~bott_ind] = np.nan
+    mod_tem[~bott_ind] = np.nan
+    obs_sal[~bott_ind] = np.nan
+    obs_tem[~bott_ind] = np.nan
+        
+    # Average over bottom depths
+    mod_bott_sal = np.nanmean(mod_sal, axis=1)
+    obs_bott_tem = np.nanmean(obs_tem, axis=1)
+    mod_bott_tem = np.nanmean(mod_tem, axis=1)
+    obs_bott_sal = np.nanmean(obs_sal, axis=1)
+    
+    data['bott_error_tem'] = (['profile'], mod_bott_tem - obs_bott_tem)
+    data['bott_error_sal'] = (['profile'], mod_bott_sal - obs_bott_sal)
+    
+    print('       Surface and bottom errors done. ', flush=True)
+              
+    # ----------------------------------------------------
+    # WRITE 1) Write monthly stats to file
+    
+    # Create temp monthly file and write to it
+    write_ds_to_file(data, fn_out, mode='w', unlimited_dims='profile')
+    
+    print('       File Written: ' + fn_out, flush=True)
+    
+    return 
+    
+    
     
     
 def par_loop_month(parii, current_month, dn_nemo_data, fn_nemo_domain, dn_en4, dn_out, 
@@ -952,7 +1352,7 @@ class plot_ts_monthly_multi_cfg():
                 tem_list = [tmp.prof_error_tem.isel( region=rr, season=ss, depth=np.arange(0,30) ) for tmp in stats_list]
                 sal_list = [tmp.prof_error_sal.isel( region=rr, season=ss, depth=np.arange(0,30) ) for tmp in stats_list]
                 
-                title_tmp = '$\Delta T$ | {0} | {1}'.format(region_names[rr], season_names[ss])
+                title_tmp = '$\Delta T$ (degC) | {0} | {1}'.format(region_names[rr], season_names[ss])
                 fn_out = 'prof_error_tem_{0}_{1}{2}'.format(season_names[ss], region_abbrev[rr], file_type)
                 fn_out = os.path.join(dn_out, fn_out)
                 f,a = self.plot_profile_centred(tem_list[0].depth, tem_list,
@@ -961,7 +1361,7 @@ class plot_ts_monthly_multi_cfg():
                 f.savefig(fn_out)
                 plt.close()
                 
-                title_tmp = '$\Delta S$ |' + region_names[rr] +' | '+season_names[ss]
+                title_tmp = '$\Delta S$ (PSU) |' + region_names[rr] +' | '+season_names[ss]
                 fn_out = 'prof_error_sal_{0}_{1}{2}'.format(season_names[ss], region_abbrev[rr], file_type)
                 fn_out = os.path.join(dn_out, fn_out)
                 f,a = self.plot_profile_centred(sal_list[0].depth, sal_list,
@@ -982,7 +1382,7 @@ class plot_ts_monthly_multi_cfg():
         xmax = 0
         for vv in variables:
             xmax = np.max([xmax, np.nanmax(np.abs(vv))])
-            ax.plot(vv.squeeze(), depth.squeeze())
+            ax.plot(savgol_filter(vv.squeeze(),5,2), depth.squeeze())
             
         plt.xlim(-xmax-0.05*xmax, xmax+0.05*xmax)
         ymax = np.nanmax(np.abs(depth))
