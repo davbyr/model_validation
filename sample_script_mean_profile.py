@@ -1,5 +1,10 @@
 import numpy as np
 import sys
+import os
+
+os.chdir('/home/users/dbyrne/code/mv2/')
+sys.path.append('/home/users/dbyrne/code/COAsT')
+
 import glob
 from analyse_ts_monthly_en4 import analyse_ts_per_file
 import os.path
