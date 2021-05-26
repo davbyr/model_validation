@@ -260,7 +260,7 @@ def analyse_ts_per_file(fn_nemo_data, fn_nemo_domain, fn_en4, fn_out,
         mod_time = nemo.time.values
         
     except:
-        print('       !!!Problem with EN4 Read: {0}'.format(fn_nemo_data))
+        print('       !!!Problem with NEMO Read: {0}'.format(fn_nemo_data))
         return
         
     # ----------------------------------------------------
@@ -295,13 +295,18 @@ def analyse_ts_per_file(fn_nemo_data, fn_nemo_domain, fn_en4, fn_out,
     en4_time = en4.time.values
     time_max = pd.to_datetime( max(mod_time) ) + relativedelta(hours=12)
     time_min = pd.to_datetime( min(mod_time) ) - relativedelta(hours=12)
+    print(time_min)
+    print(time_max)
     ind = np.logical_and( en4_time >= time_min, en4_time <= time_max )
+    print(np.sum(ind))
     en4 = en4.isel(profile=ind)
+    print(en4)
     en4.load()
     print('EN4 subsetted to model time', flush=True)
     
     # ----------------------------------------------------
     # PREPROC 3) Get model indices (space and time) corresponding to observations
+    print(en4.dims)
     ind2D = coastgu.nearest_indices_2D(nemo['longitude'], nemo['latitude'],
                                        en4['longitude'], en4['latitude'], 
                                        mask=nemo.landmask)
